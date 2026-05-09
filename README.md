@@ -15,8 +15,6 @@
 
 Aplikacja zbiera publicznie dostępne informacje o cenach paliw i prezentuje je w jednym, czytelnym dashboardzie. Widok skupia się na danych potrzebnych na co dzień: aktualnych cenach, zmianach, zapowiedzi na jutro oraz krótkiej historii publikacji.
 
-README opisuje warstwę użytkową i podstawowe uruchomienie. Szczegóły parserów, automatyki oraz konfiguracji powiadomień nie są tu dokumentowane celowo.
-
 ## Funkcje
 
 - aktualne limity dla PB95, PB98 i ON,
