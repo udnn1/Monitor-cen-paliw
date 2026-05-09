@@ -5860,7 +5860,6 @@ if ($isCronRefresh) {
                 transition: none;
             }
         }
-
         @media (min-width: 768px) {
             .col-md-6 { width: 50%; }
             .promo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
