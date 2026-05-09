@@ -63,7 +63,3 @@ http://localhost:8000
 ```
 
 Dane robocze są zapisywane lokalnie w katalogu `.paliwa-cache/`. Ten katalog powinien pozostać poza repozytorium.
-
-## Zakres publiczny
-
-Repozytorium pokazuje interfejs oraz ogólną strukturę aplikacji. Dokumentacja nie publikuje wewnętrznych notatek operacyjnych, harmonogramów ani konfiguracji kanałów powiadomień.
