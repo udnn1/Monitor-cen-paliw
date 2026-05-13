@@ -5919,8 +5919,7 @@ if ($isCronRefresh) {
                     <p class="hero-copy mb-0">
                         Widok pokazuje ceny obowiązujące <strong><?= e((string) $currentEffectiveLabel) ?></strong>,
                         zmiany względem poprzedniego komunikatu, podgląd na <strong>jutro</strong>
-                        aktualne promocje paliwowe ze stacji oraz zakładkę z powiadomieniami na
-                        Telegramie o zmianach cen.
+                        oraz aktualne promocje paliwowe ze stacji.
                     </p>
                 </div>
                 <div class="col-lg-4">
@@ -5980,9 +5979,11 @@ if ($isCronRefresh) {
                 <button class="dashboard-tab" type="button" role="tab" aria-selected="false" data-dashboard-tab="promotions">
                     Aktualne promocje
                 </button>
+                <?php /*
                 <button class="dashboard-tab dashboard-tab-alerts" type="button" role="tab" aria-selected="false" data-dashboard-tab="alerts">
                     Powiadomienia
                 </button>
+                */ ?>
             </nav>
 
             <div class="theme-toggle dashboard-theme-toggle">
