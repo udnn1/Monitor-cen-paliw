@@ -21,6 +21,11 @@ function clean_text(string $value): string
     return trim($value);
 }
 
+function normalize_display_dashes(string $value): string
+{
+    return str_replace(['–', '—', '−', '‒', '―'], '-', $value);
+}
+
 function cli_has_flag(string $flag): bool
 {
     global $argv;
@@ -1007,12 +1012,17 @@ function http_get_light(string $url, array $headers = []): ?string
 
 function station_promotions_source_url(): string
 {
-    return 'https://promocje-na-stacjach.pl/';
+    return '';
 }
 
 function bp_official_promotions_source_url(): string
 {
     return 'https://www.bp.com/pl_pl/poland/home/produkty_uslugi/promocje.html';
+}
+
+function shell_promotions_source_url(): string
+{
+    return 'https://www.shell.pl/stacje-shell/oferty-i-promocje.html';
 }
 
 function orlen_vitay_promotions_source_url(): string
@@ -1123,20 +1133,6 @@ function http_get_bp_official(string $url): ?string
     return http_get_browser_page($url, bp_official_promotions_source_url());
 }
 
-function station_network_pages(): array
-{
-    return [
-        ['network' => 'ORLEN', 'url' => 'https://promocje-na-stacjach.pl/orlen/'],
-        ['network' => 'MOYA', 'url' => 'https://promocje-na-stacjach.pl/moya/'],
-        ['network' => 'MOL', 'url' => 'https://promocje-na-stacjach.pl/mol/'],
-        ['network' => 'BP', 'url' => 'https://promocje-na-stacjach.pl/bpme/'],
-        ['network' => 'Circle K', 'url' => 'https://promocje-na-stacjach.pl/circlek/'],
-        ['network' => 'Shell', 'url' => 'https://promocje-na-stacjach.pl/shell/'],
-        ['network' => 'AMIC', 'url' => 'https://promocje-na-stacjach.pl/amic/'],
-        ['network' => 'AVIA', 'url' => 'https://promocje-na-stacjach.pl/avia/'],
-    ];
-}
-
 function text_contains_ci(string $haystack, string $needle): bool
 {
     if (function_exists('mb_stripos')) {
@@ -1164,29 +1160,6 @@ function station_logo_url(string $network): ?string
         'MOYA' => 'https://www.turbopomoc.pl/media/partner/24/images/32/preview/moya-stacja.png?v=1662729801',
         default => null,
     };
-}
-
-function absolute_station_url(string $url): string
-{
-    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-
-    if ($url === '') {
-        return '';
-    }
-
-    if (preg_match('~^https?://~i', $url) === 1) {
-        return $url;
-    }
-
-    if (str_starts_with($url, '//')) {
-        return 'https:' . $url;
-    }
-
-    if (str_starts_with($url, '/')) {
-        return 'https://promocje-na-stacjach.pl' . $url;
-    }
-
-    return 'https://promocje-na-stacjach.pl/' . ltrim($url, '/');
 }
 
 function html_to_clean_lines(string $html): array
@@ -1221,53 +1194,6 @@ function line_is_icon_only(string $line): bool
     }
 
     return preg_match('/^[\s\p{So}\x{FE0F}\x{200D}]+$/u', $line) === 1;
-}
-
-function extract_station_external_link(string $html): ?string
-{
-    if (preg_match_all('/<a\b[^>]*href=("|\')([^"\']+)\1[^>]*>(.*?)<\/a>/isu', $html, $matches, PREG_SET_ORDER) <= 0) {
-        return null;
-    }
-
-    foreach ($matches as $match) {
-        $label = clean_text($match[3]);
-
-        if (
-            text_contains_ci($label, 'Dowiedz się więcej')
-            || text_contains_ci($label, 'Sprawdź szczegóły')
-            || text_contains_ci($label, 'Odwiedź')
-        ) {
-            return absolute_station_url($match[2]);
-        }
-    }
-
-    return null;
-}
-
-function parse_station_date_range(array $lines): array
-{
-    foreach ($lines as $line) {
-        if (preg_match('/Okres trwania promocji:\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})/u', $line, $match) === 1) {
-            $from = parse_polish_date($match[1]);
-            $to = parse_polish_date($match[2]);
-
-            return [
-                'fromLabel' => $match[1],
-                'toLabel' => $match[2],
-                'fromIso' => $from?->format('Y-m-d'),
-                'toIso' => $to?->format('Y-m-d'),
-                'rangeLabel' => $match[1] . ' - ' . $match[2],
-            ];
-        }
-    }
-
-    return [
-        'fromLabel' => null,
-        'toLabel' => null,
-        'fromIso' => null,
-        'toIso' => null,
-        'rangeLabel' => null,
-    ];
 }
 
 function station_promotion_is_active(?string $fromIso, ?string $toIso): bool
@@ -1393,111 +1319,6 @@ function build_station_promotion_payload(
     ];
 }
 
-function parse_station_promotion_from_detail(string $network, string $sourceUrl, string $html): ?array
-{
-    $lines = html_to_clean_lines($html);
-    $startIndex = null;
-
-    foreach ($lines as $index => $line) {
-        if (
-            text_contains_ci($line, 'Aktualna promocja paliwowa')
-            || text_contains_ci($line, 'Informacja o promocji paliwowej')
-        ) {
-            $startIndex = $index;
-            break;
-        }
-    }
-
-    if ($startIndex === null) {
-        return null;
-    }
-
-    $section = array_slice($lines, $startIndex, 50);
-    $sectionText = implode(' ', $section);
-
-    if (text_contains_ci($sectionText, 'Obecnie brak promocji') && !text_contains_ci($sectionText, 'Okres trwania promocji')) {
-        return null;
-    }
-
-    $dateRange = parse_station_date_range($section);
-    $title = null;
-
-    foreach ($section as $index => $line) {
-        if ($index === 0) {
-            continue;
-        }
-
-        if (
-            line_is_any_station_network_label($line)
-            || text_contains_ci($line, 'Do końca pozostało')
-            || text_contains_ci($line, 'Okres trwania promocji')
-            || text_contains_ci($line, '0 dni 0 godzin 0 minut')
-            || text_contains_ci($line, 'Obecnie brak promocji')
-            || text_contains_ci($line, 'Dowiedz się więcej')
-            || text_contains_ci($line, 'Sprawdź szczegóły')
-            || line_is_icon_only($line)
-        ) {
-            continue;
-        }
-
-        $title = $line;
-        break;
-    }
-
-    if (!is_string($title) || $title === '') {
-        return null;
-    }
-
-    $dateLineIndex = null;
-
-    foreach ($section as $index => $line) {
-        if (text_contains_ci($line, 'Okres trwania promocji')) {
-            $dateLineIndex = $index;
-            break;
-        }
-    }
-
-    $descriptionParts = [];
-
-    if ($dateLineIndex !== null) {
-        foreach (array_slice($section, $dateLineIndex + 1) as $line) {
-            if (
-                line_is_any_station_network_label($line)
-                || text_contains_ci($line, 'Dowiedz się więcej')
-                || text_contains_ci($line, 'Sprawdź szczegóły')
-                || text_contains_ci($line, 'Aplikacja')
-                || text_contains_ci($line, 'Program lojalnościowy')
-                || text_contains_ci($line, 'Najważniejsze funkcje')
-                || text_contains_ci($line, 'Najnowsze wpisy')
-            ) {
-                break;
-            }
-
-            if (line_is_icon_only($line)) {
-                continue;
-            }
-
-            $descriptionParts[] = $line;
-
-            if (count($descriptionParts) >= 3) {
-                break;
-            }
-        }
-    }
-
-    $description = clean_text(implode(' ', $descriptionParts));
-    $externalUrl = extract_station_external_link($html) ?? $sourceUrl;
-
-    return build_station_promotion_payload(
-        $network,
-        $title,
-        $description,
-        $externalUrl,
-        $sourceUrl,
-        $dateRange
-    );
-}
-
 function station_promotion_discount_is_up_to(array $item): bool
 {
     if (array_key_exists('discountIsUpTo', $item)) {
@@ -1606,21 +1427,6 @@ function normalized_station_text(string $value): string
     return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
 }
 
-function station_network_aliases(string $network): array
-{
-    return match ($network) {
-        'BP' => ['bp', 'bpme', 'stacje bp', 'stacja bp'],
-        'Circle K' => ['circle k', 'circlek', 'circle-k', 'stacje circle k', 'stacja circle k'],
-        'AMIC' => ['amic', 'amic energy', 'stacje amic'],
-        'ORLEN' => ['orlen', 'stacje orlen'],
-        'MOYA' => ['moya', 'stacje moya'],
-        'MOL' => ['mol', 'stacje mol'],
-        'Shell' => ['shell', 'stacje shell'],
-        'AVIA' => ['avia', 'stacje avia'],
-        default => [normalized_station_text($network)],
-    };
-}
-
 function normalized_station_line_length(string $value): int
 {
     if (function_exists('mb_strlen')) {
@@ -1628,181 +1434,6 @@ function normalized_station_line_length(string $value): int
     }
 
     return strlen($value);
-}
-
-function line_is_station_network_label(string $line, string $network): bool
-{
-    $normalized = normalized_station_text($line);
-
-    if ($normalized === '') {
-        return false;
-    }
-
-    foreach (station_network_aliases($network) as $alias) {
-        if ($normalized === $alias) {
-            return true;
-        }
-
-        if (str_starts_with($normalized, $alias . ' ') && normalized_station_line_length($normalized) <= 48) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function line_is_any_station_network_label(string $line): bool
-{
-    foreach (station_network_pages() as $page) {
-        if (line_is_station_network_label($line, $page['network'])) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function homepage_station_section_looks_relevant(array $section): bool
-{
-    $text = implode(' ', $section);
-
-    return (
-        text_contains_ci($text, 'Okres trwania promocji')
-        || text_contains_ci($text, 'Obecnie brak promocji')
-    ) && (
-        text_contains_ci($text, 'promocj')
-        || text_contains_ci($text, 'paliw')
-    );
-}
-
-function extract_station_homepage_section(array $lines, string $network): ?array
-{
-    $count = count($lines);
-
-    for ($index = 0; $index < $count; $index++) {
-        if (!line_is_station_network_label($lines[$index], $network)) {
-            continue;
-        }
-
-        $endIndex = min($count, $index + 60);
-
-        for ($nextIndex = $index + 1; $nextIndex < $endIndex; $nextIndex++) {
-            if (line_is_any_station_network_label($lines[$nextIndex])) {
-                $endIndex = $nextIndex;
-                break;
-            }
-        }
-
-        $section = array_slice($lines, $index, max(0, $endIndex - $index));
-
-        if (homepage_station_section_looks_relevant($section)) {
-            return $section;
-        }
-    }
-
-    return null;
-}
-
-function parse_station_promotion_from_homepage_section(
-    string $network,
-    string $sourceUrl,
-    string $targetUrl,
-    array $section
-): ?array {
-    $sectionText = implode(' ', $section);
-
-    if (
-        text_contains_ci($sectionText, 'Obecnie brak promocji')
-        && !text_contains_ci($sectionText, 'Okres trwania promocji')
-    ) {
-        return null;
-    }
-
-    if (!text_contains_ci($sectionText, 'Okres trwania promocji')) {
-        return null;
-    }
-
-    $dateRange = parse_station_date_range($section);
-    $title = null;
-
-    foreach ($section as $line) {
-        if (line_is_any_station_network_label($line)) {
-            if (!line_is_station_network_label($line, $network)) {
-                break;
-            }
-
-            continue;
-        }
-
-        if (
-            text_contains_ci($line, 'Aktualna promocja paliwowa')
-            || text_contains_ci($line, 'Informacja o promocji paliwowej')
-            || text_contains_ci($line, 'Do końca pozostało')
-            || text_contains_ci($line, 'Okres trwania promocji')
-            || text_contains_ci($line, '0 dni 0 godzin 0 minut')
-            || text_contains_ci($line, 'Obecnie brak promocji')
-            || text_contains_ci($line, 'Dowiedz się więcej')
-            || text_contains_ci($line, 'Sprawdź szczegóły')
-            || line_is_icon_only($line)
-        ) {
-            continue;
-        }
-
-        $title = $line;
-        break;
-    }
-
-    if (!is_string($title) || $title === '') {
-        return null;
-    }
-
-    $dateLineIndex = null;
-
-    foreach ($section as $index => $line) {
-        if (text_contains_ci($line, 'Okres trwania promocji')) {
-            $dateLineIndex = $index;
-            break;
-        }
-    }
-
-    $descriptionParts = [];
-
-    if ($dateLineIndex !== null) {
-        foreach (array_slice($section, $dateLineIndex + 1) as $line) {
-            if (
-                line_is_any_station_network_label($line)
-                || text_contains_ci($line, 'Dowiedz się więcej')
-                || text_contains_ci($line, 'Sprawdź szczegóły')
-                || text_contains_ci($line, 'Aplikacja')
-                || text_contains_ci($line, 'Program lojalnościowy')
-                || text_contains_ci($line, 'Najważniejsze funkcje')
-                || text_contains_ci($line, 'Najnowsze wpisy')
-            ) {
-                break;
-            }
-
-            if (line_is_icon_only($line)) {
-                continue;
-            }
-
-            $descriptionParts[] = $line;
-
-            if (count($descriptionParts) >= 3) {
-                break;
-            }
-        }
-    }
-
-    $description = clean_text(implode(' ', $descriptionParts));
-
-    return build_station_promotion_payload(
-        $network,
-        $title,
-        $description,
-        $targetUrl,
-        $sourceUrl,
-        $dateRange
-    );
 }
 
 function bp_official_fuel_section_html(string $html): ?string
@@ -2334,6 +1965,15 @@ function orlen_vitay_discount_label(string $text): ?string
     return max($values) . ' gr/l';
 }
 
+function orlen_vitay_promotion_title(string $text): string
+{
+    if (preg_match('/\b([\p{Lu}][\p{Ll}]+)\s+Promocja\b/u', $text, $match) === 1) {
+        return $match[1] . ' Promocja ORLEN VITAY';
+    }
+
+    return 'Promocja paliwowa ORLEN VITAY';
+}
+
 function fetch_orlen_vitay_fuel_promotions(): array
 {
     $items = [];
@@ -2356,12 +1996,17 @@ function fetch_orlen_vitay_fuel_promotions(): array
     $lines = html_to_clean_lines($html);
     $text = clean_text(implode(' ', $lines));
 
-    if (
-        !text_contains_ci($text, 'Wiosenna Promocja')
-        || !text_contains_ci($text, 'tankuj')
-        || !text_contains_ci($text, 'benzyny')
-        || !text_contains_ci($text, 'oleju napędowego')
-    ) {
+    $fuelSignals = 0;
+    foreach (['tankuj', 'benzyn', 'oleju napędowego', 'oleju napedowego', 'efecta', 'verva', 'paliw'] as $needle) {
+        if (text_contains_ci($text, $needle)) {
+            $fuelSignals++;
+        }
+    }
+
+    $hasPromotion = text_contains_ci($text, 'Promocja');
+    $hasDiscount = orlen_vitay_discount_label($text) !== null;
+
+    if (!$hasPromotion || !$hasDiscount || $fuelSignals < 2) {
         return [
             'url' => $sourceUrl,
             'items' => [],
@@ -2383,9 +2028,10 @@ function fetch_orlen_vitay_fuel_promotions(): array
     ];
 
     $description = '20 gr/l na benzynę i ON EFECTA lub VERVA albo 35 gr/l przy zakupie na stacji za min. 5 zł. Promocja obowiązuje w weekendy.';
+    $title = orlen_vitay_promotion_title($text);
     $item = build_station_promotion_payload(
         'ORLEN',
-        'Wiosenna Promocja ORLEN VITAY',
+        $title,
         $description,
         $sourceUrl,
         $sourceUrl,
@@ -2408,138 +2054,439 @@ function fetch_orlen_vitay_fuel_promotions(): array
     ];
 }
 
-function fetch_station_promotions_from_homepage(): array
+function shell_model_json_url(string $htmlUrl): string
 {
-    $items = [];
-    $warnings = [];
-    $fetchedAt = new DateTimeImmutable();
-    $sourceUrl = station_promotions_source_url();
+    return preg_replace('/\.html(\?.*)?$/i', '.model.json', $htmlUrl) ?? $htmlUrl;
+}
 
-    $html = http_get($sourceUrl, [
-        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language: pl-PL,pl;q=0.9,en;q=0.7',
-        'User-Agent: FuelMonitor/2.2 (+local dashboard; station promotions homepage)',
-    ]);
+function http_get_shell_model(string $htmlUrl): ?array
+{
+    $raw = http_get(shell_model_json_url($htmlUrl), ['Accept: application/json,text/plain,*/*']);
 
-    if (!is_string($html) || trim($html) === '') {
-        return [
-            'url' => $sourceUrl,
-            'items' => [],
-            'warnings' => ['Nie udało się pobrać strony głównej z promocjami.'],
-            'warning' => 'Nie udało się pobrać promocji ze strony głównej.',
-            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
-            'sourceMode' => 'homepage_failed',
-        ];
+    if (!is_string($raw) || trim($raw) === '') {
+        return null;
     }
 
-    $lines = html_to_clean_lines($html);
+    $decoded = json_decode($raw, true);
 
-    foreach (station_network_pages() as $page) {
-        $section = extract_station_homepage_section($lines, $page['network']);
+    return is_array($decoded) ? $decoded : null;
+}
 
-        if ($section === null) {
+function shell_clean_node_text(string $value): string
+{
+    $value = str_replace(['&nbsp;', '<br>', '<br/>', '<br />'], ' ', $value);
+    $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+    return clean_text(strip_tags($value));
+}
+
+function shell_collect_listing_teasers(array $model): array
+{
+    $teasers = [];
+
+    $walker = static function ($node) use (&$walker, &$teasers): void {
+        if (!is_array($node)) {
+            return;
+        }
+
+        $title = is_string($node['title'] ?? null) ? shell_clean_node_text($node['title']) : null;
+        $url = null;
+
+        if (isset($node['links']) && is_array($node['links'])) {
+            foreach ($node['links'] as $link) {
+                if (is_array($link) && is_string($link['value'] ?? null) && stripos($link['value'], '/oferty-i-promocje/') !== false) {
+                    $url = $link['value'];
+                    break;
+                }
+            }
+        }
+
+        if ($title !== null && $title !== '' && is_string($url)) {
+            $text = is_string($node['text'] ?? null) ? shell_clean_node_text($node['text']) : '';
+            $alt = '';
+
+            if (isset($node['image']) && is_array($node['image']) && is_string($node['image']['alt'] ?? null)) {
+                $alt = shell_clean_node_text($node['image']['alt']);
+            }
+
+            $teasers[] = ['title' => $title, 'text' => $text, 'url' => $url, 'alt' => $alt];
+        }
+
+        foreach ($node as $value) {
+            if (is_array($value)) {
+                $walker($value);
+            }
+        }
+    };
+
+    $walker($model);
+
+    return $teasers;
+}
+
+function shell_model_text_nodes(array $model): array
+{
+    $nodes = [];
+
+    $walker = static function ($node) use (&$walker, &$nodes): void {
+        if (!is_array($node)) {
+            return;
+        }
+
+        foreach ($node as $key => $value) {
+            if (is_string($value) && in_array($key, ['title', 'text', 'jcr:title'], true)) {
+                $clean = shell_clean_node_text($value);
+
+                if ($clean !== '') {
+                    $nodes[] = $clean;
+                }
+            } elseif (is_array($value)) {
+                $walker($value);
+            }
+        }
+    };
+
+    $walker($model);
+
+    return $nodes;
+}
+
+function shell_numeric_dates(string $text): array
+{
+    if (preg_match_all('/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/', $text, $matches, PREG_SET_ORDER) <= 0) {
+        return [];
+    }
+
+    $dates = [];
+
+    foreach ($matches as $match) {
+        $day = (int) $match[1];
+        $month = (int) $match[2];
+        $year = (int) $match[3];
+
+        if (checkdate($month, $day, $year)) {
+            $dates[] = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+        }
+    }
+
+    return $dates;
+}
+
+function shell_min_max_dates(array $dates): array
+{
+    if ($dates === []) {
+        return [null, null];
+    }
+
+    usort($dates, static function (DateTimeImmutable $a, DateTimeImmutable $b): int {
+        return strcmp($a->format('Y-m-d'), $b->format('Y-m-d'));
+    });
+
+    return [$dates[0], end($dates)];
+}
+
+function shell_validity_dates(array $nodes, callable $extractor): array
+{
+    $keywords = [
+        'obowiązuje od',
+        'rozpoczyna się',
+        'kończy się',
+        'czas trwania',
+        'możesz skorzystać od',
+        'mozesz skorzystac od',
+    ];
+
+    foreach ($nodes as $node) {
+        $matchesKeyword = false;
+
+        foreach ($keywords as $keyword) {
+            if (text_contains_ci($node, $keyword)) {
+                $matchesKeyword = true;
+                break;
+            }
+        }
+
+        if (!$matchesKeyword) {
             continue;
         }
 
-        $promotion = parse_station_promotion_from_homepage_section(
-            $page['network'],
-            $sourceUrl,
-            $page['url'],
-            $section
-        );
+        $dates = $extractor($node);
 
-        if ($promotion !== null) {
-            $items[] = $promotion;
+        if (count($dates) >= 2) {
+            return shell_min_max_dates($dates);
         }
     }
 
-    station_promotions_sort($items);
-    mark_top_station_promotions($items);
+    return shell_min_max_dates($extractor(clean_text(implode(' ', $nodes))));
+}
+
+function shell_build_summer_segment(array $teaser): ?array
+{
+    $model = http_get_shell_model($teaser['url']);
+
+    if ($model === null) {
+        return null;
+    }
+
+    $nodes = shell_model_text_nodes($model);
+    $full = clean_text(implode(' ', $nodes));
+
+    $tiers = [];
+    $count = count($nodes);
+
+    for ($i = 0; $i < $count; $i++) {
+        if (preg_match('/^[−-]?\s*(\d{1,3})\s*gr\s*\/?\s*lit?r/iu', $nodes[$i], $match) === 1) {
+            $value = (int) $match[1];
+            $tiers[$value] = trim($nodes[$i] . ' ' . ($nodes[$i + 1] ?? ''));
+        }
+    }
+
+    if ($tiers === []) {
+        return null;
+    }
+
+    krsort($tiers);
+
+    $lines = [];
+
+    foreach ($tiers as $value => $context) {
+        if (text_contains_ci($context, 'lpg') || text_contains_ci($context, 'autogas')) {
+            $scope = 'na Shell AutoGas LPG';
+        } elseif (text_contains_ci($context, 'v-power') || text_contains_ci($context, 'fuelsave')) {
+            $scope = 'na paliwa Shell V-Power i FuelSave (95 i Diesel)';
+        } else {
+            $scope = 'na wybrane paliwa Shell';
+        }
+
+        $condition = '';
+
+        if (
+            text_contains_ci($context, 'kup dowolny produkt')
+            || text_contains_ci($context, 'gdy kupisz')
+            || text_contains_ci($context, 'marki własnej shell')
+            || text_contains_ci($context, 'marki wlasnej shell')
+        ) {
+            $condition = ' - tylko przy zakupie dowolnego produktu marki Shell (np. Shell Café lub myjnia)';
+        } elseif (text_contains_ci($context, 'racing')) {
+            $condition = ' - standardowo, bez dodatkowych zakupów (poza Shell V-Power Racing)';
+        }
+
+        $lines[] = '-' . $value . ' gr/l ' . $scope . $condition;
+    }
+
+    [$from, $to] = shell_validity_dates($nodes, 'orlen_vitay_textual_dates');
+
+    $extra = [];
+
+    if (preg_match('/do\s*(?:maksymalnie\s*)?(\d{1,3})\s*litr/iu', $full, $litres) === 1) {
+        $extra[] = 'rabat do ' . (int) $litres[1] . ' l na tankowanie';
+    }
+
+    if (preg_match('/\b(trzy|dwa|cztery|pięć|piec|\d+)\s*razy?\s*w\s*(?:każdym\s*|kazdym\s*)?miesi/iu', $full, $freq) === 1) {
+        $extra[] = $freq[1] . ' razy w miesiącu na ofertę';
+    }
+
+    $extra[] = 'po aktywacji w aplikacji Shell ClubSmart';
+
+    $maxValue = (int) array_key_first($tiers);
+    $text = implode('. ', $lines) . '. ' . ucfirst(implode(', ', $extra)) . '.';
 
     return [
-        'url' => $sourceUrl,
-        'items' => $items,
-        'warnings' => array_values(array_unique($warnings)),
-        'warning' => $items === [] ? 'Nie znaleziono aktualnych promocji na stronie głównej promocje-na-stacjach.pl.' : null,
-        'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
-        'sourceMode' => 'homepage',
+        'heading' => 'Tankuj taniej do -' . $maxValue . ' gr/l',
+        'text' => $text,
+        'discountLabel' => 'do ' . $maxValue . ' gr/l',
+        'discountValueGrPerL' => $maxValue,
+        'fromIso' => $from?->format('Y-m-d'),
+        'toIso' => $to?->format('Y-m-d'),
+        'dateLabel' => $to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null,
+        'url' => $teaser['url'],
+        'isActive' => station_promotion_is_active($from?->format('Y-m-d'), $to?->format('Y-m-d')),
     ];
 }
 
-function fetch_station_promotions_from_detail_pages(): array
+function shell_build_premium_segment(array $teaser): ?array
 {
-    $items = [];
-    $warnings = [];
+    $model = http_get_shell_model($teaser['url']);
+
+    if ($model === null) {
+        return null;
+    }
+
+    $nodes = shell_model_text_nodes($model);
+    $full = clean_text(implode(' ', $nodes));
+
+    $window = null;
+
+    if (preg_match('/(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})/u', $full, $match) === 1) {
+        $window = $match[1] . '-' . $match[2];
+    }
+
+    [$from, $to] = shell_validity_dates($nodes, 'shell_numeric_dates');
+
+    $text = 'Shell V-Power 95 i V-Power Diesel w cenie paliw podstawowych';
+
+    if ($window !== null) {
+        $text .= ' - codziennie w godz. ' . $window;
+    }
+
+    $text .= '.';
+
+    return [
+        'heading' => 'Paliwa premium w cenie paliw podstawowych',
+        'text' => $text,
+        'discountLabel' => null,
+        'discountValueGrPerL' => null,
+        'fromIso' => $from?->format('Y-m-d'),
+        'toIso' => $to?->format('Y-m-d'),
+        'dateLabel' => $to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null,
+        'url' => $teaser['url'],
+        'isActive' => station_promotion_is_active($from?->format('Y-m-d'), $to?->format('Y-m-d')),
+    ];
+}
+
+function fetch_shell_fuel_promotions(): array
+{
     $fetchedAt = new DateTimeImmutable();
+    $listingUrl = shell_promotions_source_url();
+    $model = http_get_shell_model($listingUrl);
 
-    foreach (station_network_pages() as $page) {
-        $html = http_get($page['url'], [
-            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language: pl-PL,pl;q=0.9,en;q=0.7',
-            'User-Agent: FuelMonitor/2.2 (+local dashboard; station promotions detail)',
-        ]);
+    if ($model === null) {
+        return [
+            'url' => $listingUrl,
+            'items' => [],
+            'warnings' => ['Nie udalo sie pobrac oficjalnej strony promocji Shell.'],
+            'warning' => 'Nie udalo sie pobrac oficjalnej strony promocji Shell.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'shell_failed',
+        ];
+    }
 
-        if (!is_string($html) || trim($html) === '') {
-            $warnings[] = 'Nie udało się pobrać promocji dla sieci ' . $page['network'] . '.';
-            continue;
+    $teasers = shell_collect_listing_teasers($model);
+    $summerTeaser = null;
+    $premiumTeaser = null;
+
+    foreach ($teasers as $teaser) {
+        $haystack = $teaser['title'] . ' ' . $teaser['text'] . ' ' . $teaser['alt'];
+
+        if (
+            $summerTeaser === null
+            && (preg_match('/\d+\s*gr\s*\/?\s*lit?r/iu', $haystack) === 1 || preg_match('/-?\d+\s*gr\b/i', $teaser['alt']) === 1)
+            && (text_contains_ci($haystack, 'tankuj') || text_contains_ci($haystack, 'rabat'))
+        ) {
+            $summerTeaser = $teaser;
         }
 
-        $promotion = parse_station_promotion_from_detail($page['network'], $page['url'], $html);
-
-        if ($promotion !== null) {
-            $items[] = $promotion;
+        if (
+            $premiumTeaser === null
+            && text_contains_ci($haystack, 'premium')
+            && text_contains_ci($haystack, 'cenie paliw podstawow')
+        ) {
+            $premiumTeaser = $teaser;
         }
     }
 
+    $segments = [];
+
+    if ($summerTeaser !== null) {
+        $segment = shell_build_summer_segment($summerTeaser);
+
+        if ($segment !== null) {
+            $segments[] = $segment;
+        }
+    }
+
+    if ($premiumTeaser !== null) {
+        $segment = shell_build_premium_segment($premiumTeaser);
+
+        if ($segment !== null) {
+            $segments[] = $segment;
+        }
+    }
+
+    if ($segments === []) {
+        return [
+            'url' => $listingUrl,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Nie znaleziono aktualnych promocji paliwowych Shell.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'shell_no_fuel_promo',
+        ];
+    }
+
+    $headlineDiscount = null;
+    $headlineValue = null;
+    $cardFrom = null;
+    $cardTo = null;
+
+    foreach ($segments as $segment) {
+        if ($segment['discountValueGrPerL'] !== null && ($headlineValue === null || $segment['discountValueGrPerL'] > $headlineValue)) {
+            $headlineValue = $segment['discountValueGrPerL'];
+            $headlineDiscount = $segment['discountLabel'];
+        }
+
+        if ($segment['fromIso'] !== null && ($cardFrom === null || $segment['fromIso'] < $cardFrom)) {
+            $cardFrom = $segment['fromIso'];
+        }
+
+        if ($segment['toIso'] !== null && ($cardTo === null || $segment['toIso'] > $cardTo)) {
+            $cardTo = $segment['toIso'];
+        }
+    }
+
+    $dateRange = [
+        'fromLabel' => null,
+        'toLabel' => $cardTo,
+        'fromIso' => $cardFrom,
+        'toIso' => $cardTo,
+        'rangeLabel' => null,
+    ];
+
+    $item = build_station_promotion_payload(
+        'Shell',
+        'Promocje paliwowe',
+        'Dwie aktualne promocje na paliwo na stacjach Shell:',
+        $summerTeaser['url'] ?? $listingUrl,
+        $listingUrl,
+        $dateRange
+    );
+
+    if ($headlineDiscount !== null) {
+        $item['discountLabel'] = $headlineDiscount;
+        $item['discountValueGrPerL'] = $headlineValue;
+    }
+
+    $item['segments'] = $segments;
+    $item['sourceMode'] = 'shell_official';
+
+    $items = [$item];
     station_promotions_sort($items);
     mark_top_station_promotions($items);
 
     return [
-        'url' => station_promotions_source_url(),
+        'url' => $listingUrl,
         'items' => $items,
-        'warnings' => array_values(array_unique($warnings)),
-        'warning' => $items === [] ? 'Nie znaleziono aktualnych promocji na stronie promocje-na-stacjach.pl.' : null,
+        'warnings' => [],
+        'warning' => null,
         'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
-        'sourceMode' => 'detail_pages',
+        'sourceMode' => 'shell_fuel_promotions',
     ];
 }
 
 function fetch_station_promotions(): array
 {
-    $homepagePromotions = fetch_station_promotions_from_homepage();
-    $detailPromotions = fetch_station_promotions_from_detail_pages();
-    $bpOfficialPromotions = null;
-    $orlenVitayPromotions = null;
-    $itemsByNetwork = [];
+    $bpOfficialPromotions = fetch_bp_official_fuel_promotions();
+    $orlenVitayPromotions = fetch_orlen_vitay_fuel_promotions();
+    $shellOfficialPromotions = fetch_shell_fuel_promotions();
 
-    foreach (($homepagePromotions['items'] ?? []) as $item) {
-        if (!empty($item['network'])) {
-            $itemsByNetwork[(string) $item['network']] = $item;
+    $items = [];
+
+    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions] as $source) {
+        if (!is_array($source)) {
+            continue;
         }
-    }
 
-    foreach (($detailPromotions['items'] ?? []) as $item) {
-        if (!empty($item['network'])) {
-            $itemsByNetwork[(string) $item['network']] = $item;
-        }
-    }
-
-    $items = array_values($itemsByNetwork);
-
-    if (!isset($itemsByNetwork['BP'])) {
-        $bpOfficialPromotions = fetch_bp_official_fuel_promotions();
-
-        foreach (($bpOfficialPromotions['items'] ?? []) as $item) {
-            if (is_array($item) && !empty($item['network'])) {
-                $items[] = $item;
-            }
-        }
-    }
-
-    if (!isset($itemsByNetwork['ORLEN'])) {
-        $orlenVitayPromotions = fetch_orlen_vitay_fuel_promotions();
-
-        foreach (($orlenVitayPromotions['items'] ?? []) as $item) {
+        foreach (($source['items'] ?? []) as $item) {
             if (is_array($item) && !empty($item['network'])) {
                 $items[] = $item;
             }
@@ -2549,50 +2496,22 @@ function fetch_station_promotions(): array
     station_promotions_sort($items);
     mark_top_station_promotions($items);
 
-    $primaryWarnings = array_merge(
-        $homepagePromotions['warnings'] ?? [],
-        $detailPromotions['warnings'] ?? []
-    );
-
-    if ($bpOfficialPromotions !== null && !empty($bpOfficialPromotions['items'])) {
-        $primaryWarnings = array_values(array_filter($primaryWarnings, static function ($warning): bool {
-            return !text_contains_ci((string) $warning, ' BP');
-        }));
-    }
-
-    if ($orlenVitayPromotions !== null && !empty($orlenVitayPromotions['items'])) {
-        $primaryWarnings = array_values(array_filter($primaryWarnings, static function ($warning): bool {
-            return !text_contains_ci((string) $warning, 'ORLEN');
-        }));
-    }
-
     $warnings = array_values(array_unique(array_merge(
-        $primaryWarnings,
         $bpOfficialPromotions['warnings'] ?? [],
-        $orlenVitayPromotions['warnings'] ?? []
+        $orlenVitayPromotions['warnings'] ?? [],
+        $shellOfficialPromotions['warnings'] ?? []
     )));
-
-    $fallbackModes = [];
-
-    if ($bpOfficialPromotions !== null && !empty($bpOfficialPromotions['items'])) {
-        $fallbackModes[] = 'bp_official';
-    }
-
-    if ($orlenVitayPromotions !== null && !empty($orlenVitayPromotions['items'])) {
-        $fallbackModes[] = 'orlen_vitay';
-    }
-
-    $sourceMode = $fallbackModes === []
-        ? 'homepage_plus_detail_preferred'
-        : 'homepage_plus_detail_preferred_' . implode('_', $fallbackModes) . '_fallback';
 
     return [
         'url' => station_promotions_source_url(),
         'items' => $items,
         'warnings' => $warnings,
-        'warning' => $items === [] ? 'Nie znaleziono aktualnych promocji na stronie promocje-na-stacjach.pl.' : null,
-        'fetchedAtLabel' => $detailPromotions['fetchedAtLabel'] ?? ($homepagePromotions['fetchedAtLabel'] ?? (new DateTimeImmutable())->format('d.m.Y H:i')),
-        'sourceMode' => $sourceMode,
+        'warning' => $items === [] ? 'Nie znaleziono aktualnych promocji paliwowych na oficjalnych stronach stacji.' : null,
+        'fetchedAtLabel' => $bpOfficialPromotions['fetchedAtLabel']
+            ?? $orlenVitayPromotions['fetchedAtLabel']
+            ?? $shellOfficialPromotions['fetchedAtLabel']
+            ?? (new DateTimeImmutable())->format('d.m.Y H:i'),
+        'sourceMode' => 'official_direct',
     ];
 }
 
@@ -3563,9 +3482,9 @@ function parse_monitor_polish_pdf_prices(string $pdf): array
     }
 
     $patterns = [
-        'PB95' => '/benzyn[^;]{0,180}\b95\b[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+,[0-9]{2})\s*z/i',
-        'PB98' => '/benzyn[^;]{0,180}\b98\b[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+,[0-9]{2})\s*z/i',
-        'ON' => '/oleju[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+,[0-9]{2})\s*z/i',
+        'PB95' => '/benzyn[^;]{0,180}\b95\b[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+[.,][0-9]{2})\s*z/i',
+        'PB98' => '/benzyn[^;]{0,180}\b98\b[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+[.,][0-9]{2})\s*z/i',
+        'ON' => '/oleju[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+[.,][0-9]{2})\s*z/i',
     ];
 
     $prices = [];
@@ -3860,7 +3779,7 @@ function parse_fuel_prices(string $html, ?string $intro = null): array
                 continue;
             }
 
-            if (preg_match('/([0-9]+,[0-9]+)/u', $line, $match) === 1) {
+            if (preg_match('/([0-9]+[.,][0-9]+)/u', $line, $match) === 1) {
                 $value = parse_price_value($match[1]);
 
                 if ($value !== null) {
@@ -3874,7 +3793,7 @@ function parse_fuel_prices(string $html, ?string $intro = null): array
         return $prices;
     }
 
-    if (preg_match_all('/(benzyna\s*95|benzyna\s*98|olej napędowy|olej napedowy|lpg|autogaz)\s*[-–—]\s*([0-9]+,[0-9]+)/iu', $intro, $matches, PREG_SET_ORDER) > 0) {
+    if (preg_match_all('/(benzyna\s*95|benzyna\s*98|olej napędowy|olej napedowy|lpg|autogaz)\s*[-–—]\s*([0-9]+[.,][0-9]+)/iu', $intro, $matches, PREG_SET_ORDER) > 0) {
         foreach ($matches as $match) {
             $fuel = normalize_fuel_name($match[1]);
             $value = parse_price_value($match[2]);
@@ -3962,7 +3881,7 @@ function extract_effective_range(string $title, ?string $intro, string $html): a
         return [
             'from' => $from,
             'to' => $to,
-            'label' => $from->format('d.m') . '–' . $to->format('d.m.Y'),
+            'label' => $from->format('d.m') . '-' . $to->format('d.m.Y'),
             'parsed' => true,
         ];
     }
@@ -5656,7 +5575,7 @@ if ($isCronRefresh) {
 
         .promo-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
         .promo-section-card { padding-top: 0.65rem !important; padding-bottom: 3.8rem !important; }
-        .promo-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; }
+        .promo-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; align-items: start; }
 
         .promo-card {
             position: relative;
@@ -5711,6 +5630,22 @@ if ($isCronRefresh) {
         .promo-card.is-top-promo .promo-title { color: #0c5b38; }
         :root[data-theme="dark"] .promo-card.is-top-promo .promo-title { color: #8ee0b4; }
         .promo-description { display: block; margin-top: 0.45rem; }
+        .promo-segments { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.75rem; }
+        .promo-segment { display: block; padding: 0.7rem 0.8rem; border-radius: 0.85rem; background: rgba(102, 112, 133, 0.07); border: 1px solid rgba(102, 112, 133, 0.12); text-decoration: none; color: inherit; cursor: pointer; transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease; }
+        :root[data-theme="dark"] .promo-segment { background: rgba(184, 195, 204, 0.06); border-color: rgba(184, 195, 204, 0.12); }
+        .promo-segment:hover { color: inherit; border-color: rgba(31, 138, 112, 0.45); background: rgba(31, 138, 112, 0.07); transform: translateY(-1px); }
+        .promo-segment:focus-visible { outline: 2px solid rgba(31, 138, 112, 0.6); outline-offset: 2px; }
+        .promo-card-grouped { cursor: default; }
+        .promo-card-grouped:hover { transform: none; border-color: var(--line); box-shadow: 0 10px 28px var(--shadow); }
+        .promo-segment-title { display: block; font-weight: 850; line-height: 1.25; }
+        .promo-segment-text { display: block; margin-top: 0.3rem; font-size: 0.86rem; color: var(--muted); line-height: 1.4; }
+        .promo-collapsible { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+        .promo-collapsible.is-expanded { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+        .promo-toggle { display: inline-block; margin-top: 0.4rem; font-size: 0.8rem; font-weight: 850; color: #0c7a52; cursor: pointer; user-select: none; }
+        .promo-toggle:hover { text-decoration: underline; }
+        .promo-toggle[hidden] { display: none; }
+        :root[data-theme="dark"] .promo-toggle { color: #7ee0b2; }
+        .promo-segment .promo-meta { margin-top: 0.6rem; }
         .promo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; margin-top: 0.75rem; }
         .promo-chip { display: inline-flex; align-items: center; gap: 0.28rem; padding: 0.28rem 0.62rem; border-radius: 999px; font-size: 0.78rem; font-weight: 850; line-height: 1; }
         .promo-status-active { color: #7a2300; background: rgba(244, 185, 66, 0.34); }
@@ -6103,10 +6038,10 @@ if ($isCronRefresh) {
                             <?php foreach ($promotionItems as $promo): ?>
                                 <?php
                                 $network = (string) ($promo['network'] ?? 'Stacja');
-                                $title = (string) ($promo['title'] ?? 'Promocja');
-                                $description = (string) ($promo['description'] ?? '');
-                                $discountLabel = $promo['discountLabel'] ?? null;
-                                $dateRangeLabel = $promo['dateRangeLabel'] ?? null;
+                                $title = normalize_display_dashes((string) ($promo['title'] ?? 'Promocja'));
+                                $description = normalize_display_dashes((string) ($promo['description'] ?? ''));
+                                $discountLabel = is_string($promo['discountLabel'] ?? null) ? normalize_display_dashes($promo['discountLabel']) : null;
+                                $dateRangeLabel = is_string($promo['dateRangeLabel'] ?? null) ? normalize_display_dashes($promo['dateRangeLabel']) : null;
                                 $toIso = $promo['toIso'] ?? null;
                                 $displayDateLabel = $dateRangeLabel;
 
@@ -6117,10 +6052,15 @@ if ($isCronRefresh) {
                                 $url = (string) ($promo['url'] ?? station_promotions_source_url());
                                 $isActive = !empty($promo['isActive']);
                                 $isTopPromotion = !empty($promo['isTopPromotion']);
+                                $segments = is_array($promo['segments'] ?? null) ? $promo['segments'] : [];
                                 $logoUrl = station_logo_url($network);
                                 $logoClassSuffix = strtolower(str_replace(' ', '-', $network));
                                 ?>
+                                <?php if ($segments !== []): ?>
+                                <div class="promo-card promo-card-grouped <?= $isTopPromotion ? 'is-top-promo' : '' ?>">
+                                <?php else: ?>
                                 <a class="promo-card <?= $isTopPromotion ? 'is-top-promo' : '' ?>" href="<?= e($url) ?>" target="_blank" rel="noreferrer">
+                                <?php endif; ?>
                                     <span class="promo-logo" aria-hidden="true">
                                         <?php if (is_string($logoUrl) && trim($logoUrl) !== ''): ?>
                                             <img
@@ -6142,29 +6082,77 @@ if ($isCronRefresh) {
                                             </span>
                                         <?php endif; ?>
 
-                                        <span class="promo-title"><?= e($network) ?> — <?= e($title) ?></span>
+                                        <span class="promo-title"><?= e($network) ?> - <?= e($title) ?></span>
 
-                                        <?php if ($description !== ''): ?>
-                                            <span class="small text-secondary promo-description">
-                                                <?= e($description) ?>
+                                        <?php if ($segments !== []): ?>
+                                            <?php if ($description !== ''): ?>
+                                                <span class="small text-secondary promo-description">
+                                                    <?= e($description) ?>
+                                                </span>
+                                            <?php endif; ?>
+
+                                            <span class="promo-segments">
+                                                <?php foreach ($segments as $segment): ?>
+                                                    <?php
+                                                    $segHeading = normalize_display_dashes((string) ($segment['heading'] ?? ''));
+                                                    $segText = normalize_display_dashes((string) ($segment['text'] ?? ''));
+                                                    $segDiscount = is_string($segment['discountLabel'] ?? null) ? normalize_display_dashes($segment['discountLabel']) : null;
+                                                    $segDate = is_string($segment['dateLabel'] ?? null) ? normalize_display_dashes($segment['dateLabel']) : null;
+                                                    $segActive = !empty($segment['isActive']);
+                                                    $segUrl = (string) ($segment['url'] ?? $url);
+                                                    ?>
+                                                    <a class="promo-segment" href="<?= e($segUrl) ?>" target="_blank" rel="noreferrer">
+                                                        <?php if ($segHeading !== ''): ?>
+                                                            <span class="promo-segment-title"><?= e($segHeading) ?></span>
+                                                        <?php endif; ?>
+
+                                                        <?php if ($segText !== ''): ?>
+                                                            <span class="promo-segment-text promo-collapsible"><?= e($segText) ?></span>
+                                                            <span class="promo-toggle" role="button" tabindex="0" aria-expanded="false" hidden>Pokaż więcej</span>
+                                                        <?php endif; ?>
+
+                                                        <span class="promo-meta">
+                                                            <span class="promo-chip <?= $segActive ? 'promo-status-active' : 'promo-status-muted' ?>">
+                                                                <?= $segActive ? 'Aktywna' : 'Poza terminem / do weryfikacji' ?>
+                                                            </span>
+
+                                                            <?php if (is_string($segDiscount) && trim($segDiscount) !== ''): ?>
+                                                                <span class="promo-chip promo-discount"><?= e($segDiscount) ?></span>
+                                                            <?php endif; ?>
+
+                                                            <?php if (is_string($segDate) && trim($segDate) !== ''): ?>
+                                                                <span class="promo-chip promo-date"><?= e($segDate) ?></span>
+                                                            <?php endif; ?>
+                                                        </span>
+                                                    </a>
+                                                <?php endforeach; ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <?php if ($description !== ''): ?>
+                                                <span class="small text-secondary promo-description promo-collapsible"><?= e($description) ?></span>
+                                                <span class="promo-toggle" role="button" tabindex="0" aria-expanded="false" hidden>Pokaż więcej</span>
+                                            <?php endif; ?>
+
+                                            <span class="promo-meta">
+                                                <span class="promo-chip <?= $isActive ? 'promo-status-active' : 'promo-status-muted' ?>">
+                                                    <?= $isActive ? 'Aktywna' : 'Poza terminem / do weryfikacji' ?>
+                                                </span>
+
+                                                <?php if (is_string($discountLabel) && trim($discountLabel) !== ''): ?>
+                                                    <span class="promo-chip promo-discount"><?= e($discountLabel) ?></span>
+                                                <?php endif; ?>
+
+                                                <?php if (is_string($displayDateLabel) && trim($displayDateLabel) !== ''): ?>
+                                                    <span class="promo-chip promo-date"><?= e($displayDateLabel) ?></span>
+                                                <?php endif; ?>
                                             </span>
                                         <?php endif; ?>
-
-                                        <span class="promo-meta">
-                                            <span class="promo-chip <?= $isActive ? 'promo-status-active' : 'promo-status-muted' ?>">
-                                                <?= $isActive ? 'Aktywna' : 'Poza terminem / do weryfikacji' ?>
-                                            </span>
-
-                                            <?php if (is_string($discountLabel) && trim($discountLabel) !== ''): ?>
-                                                <span class="promo-chip promo-discount"><?= e($discountLabel) ?></span>
-                                            <?php endif; ?>
-
-                                            <?php if (is_string($displayDateLabel) && trim($displayDateLabel) !== ''): ?>
-                                                <span class="promo-chip promo-date"><?= e($displayDateLabel) ?></span>
-                                            <?php endif; ?>
-                                        </span>
                                     </span>
+                                <?php if ($segments !== []): ?>
+                                </div>
+                                <?php else: ?>
                                 </a>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </div>
                     <?php endif; ?>
@@ -6195,9 +6183,7 @@ if ($isCronRefresh) {
             Źródła:
             <a class="source-link" href="https://www.gov.pl/web/energia/wiadomosci" target="_blank" rel="noreferrer">Ministerstwo Energii na gov.pl</a>
             ,
-            <a class="source-link" href="<?= e(monitor_polish_source_url()) ?>" target="_blank" rel="noreferrer">Monitor Polski</a>
-            oraz
-            <a class="source-link" href="<?= e(station_promotions_source_url()) ?>" target="_blank" rel="noreferrer">promocje-na-stacjach.pl</a>.
+            <a class="source-link" href="<?= e(monitor_polish_source_url()) ?>" target="_blank" rel="noreferrer">Monitor Polski</a>.
         </footer>
     </main>
 
@@ -6312,6 +6298,25 @@ if ($isCronRefresh) {
         return chartLibraryPromise;
     };
 
+    const CHART_HIDDEN_FUELS_KEY = 'fuelDashboardChartHiddenFuels';
+
+    const getStoredHiddenFuels = () => {
+        try {
+            const raw = localStorage.getItem(CHART_HIDDEN_FUELS_KEY);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    };
+
+    const storeHiddenFuels = (state) => {
+        try {
+            localStorage.setItem(CHART_HIDDEN_FUELS_KEY, JSON.stringify(state));
+        } catch (error) {}
+    };
+
     const renderCharts = () => {
         if (chartsRendered || typeof window.Chart === 'undefined') return;
         chartsRendered = true;
@@ -6329,6 +6334,8 @@ if ($isCronRefresh) {
                 recentItems.some((item) => item.prices && item.prices[fuel] !== undefined && item.prices[fuel] !== null)
             );
 
+            const storedHiddenFuels = getStoredHiddenFuels();
+
             window.recentChartInstance = new window.Chart(recentCtx, {
                 type: 'line',
                 data: {
@@ -6339,6 +6346,7 @@ if ($isCronRefresh) {
                         borderColor: fuelStyles[fuel].border,
                         backgroundColor: fuelStyles[fuel].background,
                         pointBackgroundColor: fuelStyles[fuel].border,
+                        hidden: storedHiddenFuels[fuel] === true,
                         tension: 0.32,
                         spanGaps: true,
                         borderWidth: 3,
@@ -6359,6 +6367,16 @@ if ($isCronRefresh) {
                                 boxWidth: 10,
                                 color: palette.ink,
                                 font: { family: bodyFontFamily, weight: '600' }
+                            },
+                            onClick: (event, legendItem, legend) => {
+                                const chart = legend.chart;
+                                window.Chart.defaults.plugins.legend.onClick.call(chart.legend, event, legendItem, legend);
+
+                                const state = {};
+                                chart.data.datasets.forEach((dataset, index) => {
+                                    state[dataset.label] = !chart.isDatasetVisible(index);
+                                });
+                                storeHiddenFuels(state);
                             }
                         },
                         tooltip: {
@@ -6441,6 +6459,62 @@ if ($isCronRefresh) {
         window.requestAnimationFrame(() => moveDashboardTabIndicator(getDashboardTabIndicatorTarget()));
     };
 
+    const refreshPromoToggles = () => {
+        document.querySelectorAll('.promo-toggle').forEach((toggle) => {
+            const body = toggle.previousElementSibling;
+
+            if (!body || !body.classList.contains('promo-collapsible')) {
+                return;
+            }
+
+            if (!toggle.dataset.bound) {
+                toggle.dataset.bound = '1';
+
+                const handler = (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const expanded = body.classList.toggle('is-expanded');
+                    toggle.textContent = expanded ? 'Pokaż mniej' : 'Pokaż więcej';
+                    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                };
+
+                toggle.addEventListener('click', handler);
+                toggle.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                        handler(event);
+                    }
+                });
+            }
+
+            if (body.classList.contains('is-expanded')) {
+                toggle.hidden = false;
+                return;
+            }
+
+            if (body.clientHeight === 0) {
+                return;
+            }
+
+            toggle.hidden = body.scrollHeight <= body.clientHeight + 2;
+        });
+    };
+
+    let promoResizeRaf = null;
+    window.addEventListener('resize', () => {
+        if (promoResizeRaf) {
+            window.cancelAnimationFrame(promoResizeRaf);
+        }
+
+        promoResizeRaf = window.requestAnimationFrame(() => {
+            const panel = document.querySelector('[data-dashboard-panel="promotions"]');
+
+            if (panel && !panel.hidden) {
+                refreshPromoToggles();
+            }
+        });
+    });
+
     const activateDashboardTab = (tabName, shouldStore = true) => {
         const selectedTab = dashboardTabButtons.some((button) => button.dataset.dashboardTab === tabName) ? tabName : 'prices';
 
@@ -6467,6 +6541,10 @@ if ($isCronRefresh) {
                 window.recentChartInstance.resize();
                 applyChartTheme(window.recentChartInstance);
             }
+        }
+
+        if (selectedTab === 'promotions') {
+            window.requestAnimationFrame(refreshPromoToggles);
         }
     };
 
