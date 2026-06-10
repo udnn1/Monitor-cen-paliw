@@ -1,7 +1,7 @@
 <h1 align="center">Monitor cen paliw w Polsce</h1>
 
 <p align="center">
-  Panel do szybkiego sprawdzania aktualnych limitów cen paliw, zmian względem poprzedniego komunikatu oraz wybranych promocji na stacjach.
+  Panel do szybkiego sprawdzania aktualnych limitów cen paliw, zmian względem poprzedniego komunikatu oraz promocji na stacjach.
 </p>
 
 <p align="center">
@@ -13,26 +13,39 @@
 
 ## O projekcie
 
-Aplikacja zbiera publicznie dostępne informacje o cenach paliw i prezentuje je w jednym, czytelnym dashboardzie. Widok skupia się na danych potrzebnych na co dzień: aktualnych cenach, zmianach, zapowiedzi na jutro oraz krótkiej historii publikacji.
+Aplikacja zbiera publicznie dostępne informacje o cenach paliw i promocjach, prezentując je w jednym dashboardzie. Dane pobierane są z oficjalnych źródeł (gov.pl, Monitor Polski) oraz stron sieci stacji (BP, Shell, ORLEN VITAY).
+
+## Źródła danych
+
+### Ceny paliw
+- **gov.pl** – komunikat Ministerstwa Energii z maksymalnymi cenami detalicznymi,
+- **Monitor Polski** – PDF z obwieszczeniem (fallback gdy gov.pl nie ma jeszcze artykułu na jutro).
+
+### Promocje
+- **BP** – oficjalna strona bp.com (sekcja Promocje na paliwa),
+- **Shell** – model JSON z shell.pl (teaser + detale),
+- **ORLEN VITAY** – vitay.pl/rabaty (strona programu lojalnościowego).
 
 ## Funkcje
 
 - aktualne limity dla PB95, PB98 i ON,
 - porównanie cen z poprzednim komunikatem,
 - podgląd cen na jutro, jeśli są już dostępne,
-- wykres zmian z ostatniego miesiąca,
-- sekcja aktualnych promocji paliwowych,
-- jasny i ciemny motyw panelu,
-- ręczne odświeżanie danych z blokadą zbyt częstych prób,
-- możliwość odświeżania snapshotu z CLI,
-- opcjonalna sekcja powiadomień o zmianach.
+- wykres zmian z ostatniego miesiąca (Chart.js),
+- sekcja aktualnych promocji paliwowych (rabaty, daty, kategoryzacja),
+- automatyczne wykrywanie najlepszej promocji (najwyższy rabat, najmniej obostrzeń),
+- jasny i ciemny motyw (zapisywany w localStorage),
+- ręczne odświeżanie danych z 5-minutowym cooldownem,
+- automatyczne odświeżanie (auto-refresh) z throttlingiem i blokadami,
+- wykrywanie nowego obwieszczenia na gov.pl i pobieranie go,
+- fallback PDF z Monitora Polski gdy brak artykułu na jutro,
+- CLI: odświeżanie snapshotu przez `--refresh-cache`,
+- opcjonalny link do bota Telegram (t.me/CenyCPNpl).
 
 ## Stack
 
-Projekt jest utrzymany jako lekka aplikacja bez rozbudowanego frameworka:
-
-- PHP,
-- HTML i CSS,
+- PHP (bez frameworka),
+- HTML i CSS (vanilla, bez bibliotek),
 - vanilla JavaScript,
 - Chart.js do wykresu historii cen.
 
@@ -62,4 +75,18 @@ Po uruchomieniu wejdź na:
 http://localhost:8000
 ```
 
-Dane robocze są zapisywane lokalnie w katalogu `.paliwa-cache/`. Ten katalog powinien pozostać poza repozytorium.
+## CLI
+
+| Flaga | Opis |
+|-------|------|
+| `--refresh-cache` | Wymusza odświeżenie wszystkich danych (ceny + promocje) i zapis snapshotu. |
+
+## Cache i snapshoty
+
+Dane robocze są zapisywane lokalnie w katalogu `.paliwa-cache/`:
+- `dashboard-current.json` – główny snapshot dashboardu,
+- `auto-refresh-state.json` – stan auto-odświeżania,
+- `manual-refresh-cooldown.json` – cooldown ręcznego odświeżania,
+- pliki `.lock` – blokady dostępu (flock).
+
+Katalog `.paliwa-cache/` powinien pozostać poza repozytorium.
