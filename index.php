@@ -53,12 +53,12 @@ function apply_cache_acl(string $path, bool $isDir): void
     $escapedPath = escapeshellarg($path);
 
     if ($isDir) {
-        @exec($setfacl . ' -m u:frog:rwx,u:nobody:rwx,g:frog:rwx,m:rwx ' . $escapedPath . ' 2>/dev/null');
-        @exec($setfacl . ' -d -m u:frog:rwX,u:nobody:rwX,g:frog:rwX,m:rwX ' . $escapedPath . ' 2>/dev/null');
+        @exec($setfacl . ' -m u:www-data:rwx,g:www-data:rwx,m:rwx ' . $escapedPath . ' 2>/dev/null');
+        @exec($setfacl . ' -d -m u:www-data:rwX,g:www-data:rwX,m:rwX ' . $escapedPath . ' 2>/dev/null');
         return;
     }
 
-    @exec($setfacl . ' -m u:frog:rw-,u:nobody:rw-,g:frog:rw-,m:rw- ' . $escapedPath . ' 2>/dev/null');
+    @exec($setfacl . ' -m u:www-data:rw-,g:www-data:rw-,m:rw- ' . $escapedPath . ' 2>/dev/null');
 }
 
 function normalize_cache_permissions(?string $path = null): void
@@ -66,15 +66,15 @@ function normalize_cache_permissions(?string $path = null): void
     $dir = cache_dir();
 
     if (is_dir($dir)) {
-        @chown($dir, 'nobody');
-        @chgrp($dir, 'frog');
+        @chown($dir, 'www-data');
+        @chgrp($dir, 'www-data');
         @chmod($dir, 02775);
         apply_cache_acl($dir, true);
     }
 
     if ($path !== null && is_file($path)) {
-        @chown($path, 'nobody');
-        @chgrp($path, 'frog');
+        @chown($path, 'www-data');
+        @chgrp($path, 'www-data');
         @chmod($path, 0664);
         apply_cache_acl($path, false);
     }
@@ -157,142 +157,6 @@ function auto_refresh_state_lock_path(): string
 function auto_refresh_session_stale_seconds(): int
 {
     return 300;
-}
-
-function auto_refresh_active_session_status(DateTimeImmutable $targetDate): array
-{
-    if (!ensure_cache_dir()) {
-        return [
-            'active' => false,
-            'targetDateIso' => $targetDate->format('Y-m-d'),
-        ];
-    }
-
-    $now = time();
-    $targetIso = $targetDate->format('Y-m-d');
-    $lock = open_cache_lock_file(auto_refresh_state_lock_path());
-
-    if (!is_resource($lock)) {
-        return [
-            'active' => false,
-            'targetDateIso' => $targetIso,
-        ];
-    }
-
-    @flock($lock, LOCK_EX);
-
-    $state = read_json_array_file(auto_refresh_state_path());
-    $stateTargetIso = (string) ($state['targetDateIso'] ?? '');
-    $inProgress = !empty($state['inProgress']);
-    $startedAt = (int) ($state['startedAt'] ?? 0);
-    $updatedAt = (int) ($state['updatedAt'] ?? $startedAt);
-    $lastActivityAt = $updatedAt > 0 ? $updatedAt : $startedAt;
-    $isFresh = $lastActivityAt > 0 && ($lastActivityAt + auto_refresh_session_stale_seconds()) > $now;
-
-    @flock($lock, LOCK_UN);
-    @fclose($lock);
-
-    if ($stateTargetIso === $targetIso && $inProgress && $isFresh) {
-        return [
-            'active' => true,
-            'targetDateIso' => $targetIso,
-            'sessionId' => (string) ($state['sessionId'] ?? ''),
-            'startedAt' => $startedAt,
-            'updatedAt' => $updatedAt,
-            'retryAfterSeconds' => 5,
-        ];
-    }
-
-    return [
-        'active' => false,
-        'targetDateIso' => $targetIso,
-    ];
-}
-
-function auto_refresh_session_start(DateTimeImmutable $targetDate): array
-{
-    if (!ensure_cache_dir()) {
-        return [
-            'sessionId' => '',
-            'targetDateIso' => $targetDate->format('Y-m-d'),
-        ];
-    }
-
-    $now = time();
-    $targetIso = $targetDate->format('Y-m-d');
-    $lock = open_cache_lock_file(auto_refresh_state_lock_path());
-
-    if (!is_resource($lock)) {
-        return [
-            'sessionId' => '',
-            'targetDateIso' => $targetIso,
-        ];
-    }
-
-    @flock($lock, LOCK_EX);
-
-    $state = read_json_array_file(auto_refresh_state_path());
-
-    if ((string) ($state['targetDateIso'] ?? '') !== $targetIso) {
-        $state = [];
-    }
-
-    try {
-        $sessionId = bin2hex(random_bytes(8));
-    } catch (Throwable $exception) {
-        $sessionId = str_replace('.', '', uniqid('auto-', true));
-    }
-
-    $state['targetDateIso'] = $targetIso;
-    $state['inProgress'] = true;
-    $state['sessionId'] = $sessionId;
-    $state['startedAt'] = $now;
-    $state['updatedAt'] = $now;
-
-    write_json_array_file(auto_refresh_state_path(), $state);
-
-    @flock($lock, LOCK_UN);
-    @fclose($lock);
-
-    return [
-        'sessionId' => $sessionId,
-        'targetDateIso' => $targetIso,
-        'startedAt' => $now,
-    ];
-}
-
-function auto_refresh_session_finish(DateTimeImmutable $targetDate, string $sessionId, string $status): void
-{
-    if ($sessionId === '' || !ensure_cache_dir()) {
-        return;
-    }
-
-    $targetIso = $targetDate->format('Y-m-d');
-    $lock = open_cache_lock_file(auto_refresh_state_lock_path());
-
-    if (!is_resource($lock)) {
-        return;
-    }
-
-    @flock($lock, LOCK_EX);
-
-    $state = read_json_array_file(auto_refresh_state_path());
-
-    if (
-        (string) ($state['targetDateIso'] ?? '') === $targetIso
-        && (string) ($state['sessionId'] ?? '') === $sessionId
-    ) {
-        $now = time();
-        $state['inProgress'] = false;
-        $state['updatedAt'] = $now;
-        $state['endedAt'] = $now;
-        $state['lastStatus'] = $status;
-
-        write_json_array_file(auto_refresh_state_path(), $state);
-    }
-
-    @flock($lock, LOCK_UN);
-    @fclose($lock);
 }
 
 function ensure_cache_dir(): bool
@@ -1522,33 +1386,6 @@ function bp_official_detail_line_looks_relevant(string $line): bool
         || text_contains_ci($line, 'gr/l')
         || text_contains_ci($line, 'grosz')
         || text_contains_ci($line, 'BPme');
-}
-
-function bp_official_fuel_promotion_is_supported(string $title, string $url, string $description = ''): bool
-{
-    return bp_official_fuel_promotion_kind($title, $url, $description) !== null;
-
-    $text = normalized_station_text($title . ' ' . $url . ' ' . $description);
-
-    if (
-        text_contains_ci($text, 'lpg')
-        || text_contains_ci($text, 'autogaz')
-        || text_contains_ci($text, 'media markt')
-        || text_contains_ci($text, 'mediamarkt')
-        || text_contains_ci($text, 'kupon ')
-        || text_contains_ci($text, 'bon ')
-    ) {
-        return false;
-    }
-
-    return text_contains_ci($text, 'pb95')
-        || text_contains_ci($text, 'bezołowiową 95')
-        || text_contains_ci($text, 'benzynę bezołowiową 95')
-        || text_contains_ci($text, 'olej napędowy')
-        || text_contains_ci($text, 'diesel')
-        || text_contains_ci($text, 'ultimate 98')
-        || text_contains_ci($text, 'paliwo podstawowe')
-        || text_contains_ci($text, 'paliwa podstawowego');
 }
 
 function bp_official_fuel_promotion_kind(string $title, string $url, string $description = ''): ?string
@@ -4091,25 +3928,6 @@ function find_previous_announcement(array $announcements, ?array $current): ?arr
     }
 
     return null;
-}
-
-function find_next_effective_announcement(array $announcements, DateTimeImmutable $date): ?array
-{
-    $target = $date->format('Y-m-d');
-
-    $candidates = array_values(array_filter(
-        $announcements,
-        static function (array $item) use ($target): bool {
-            $fromIso = $item['effectiveFromIso'] ?? '';
-            return $fromIso !== '' && $fromIso >= $target;
-        }
-    ));
-
-    usort($candidates, static function (array $left, array $right): int {
-        return strcmp($left['effectiveFromIso'] ?? '', $right['effectiveFromIso'] ?? '');
-    });
-
-    return $candidates[0] ?? null;
 }
 
 function announcement_chart_date_iso(array $announcement): ?string
