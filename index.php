@@ -894,6 +894,106 @@ function orlen_vitay_promotions_source_url(): string
     return 'https://vitay.pl/rabaty';
 }
 
+function orlen_press_root_url(): string
+{
+    return 'https://www.orlen.pl/pl';
+}
+
+function orlen_press_absolute_url(string $url): string
+{
+    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+    if ($url === '') {
+        return '';
+    }
+
+    if (preg_match('~^https?://~i', $url) === 1) {
+        return $url;
+    }
+
+    if (str_starts_with($url, '//')) {
+        return 'https:' . $url;
+    }
+
+    if (str_starts_with($url, '/')) {
+        return 'https://www.orlen.pl' . $url;
+    }
+
+    return 'https://www.orlen.pl/' . ltrim($url, '/');
+}
+
+function orlen_press_fuel_promotion_url(): ?string
+{
+    $html = http_get_orlen_vitay(orlen_press_root_url());
+
+    if (!is_string($html) || trim($html) === '') {
+        return null;
+    }
+
+    if (preg_match_all('~href="(/pl/o-firmie/media/komunikaty-prasowe/[^"]+)"~i', $html, $matches) <= 0) {
+        return null;
+    }
+
+    foreach ($matches[1] as $href) {
+        $slug = strtolower($href);
+
+        if (strpos($slug, 'promocj') !== false && strpos($slug, 'paliw') !== false) {
+            return orlen_press_absolute_url($href);
+        }
+    }
+
+    return null;
+}
+
+function orlen_press_promotion_end_date(string $text): ?DateTimeImmutable
+{
+    $months = [
+        'stycznia' => 1,
+        'lutego' => 2,
+        'marca' => 3,
+        'kwietnia' => 4,
+        'maja' => 5,
+        'czerwca' => 6,
+        'lipca' => 7,
+        'sierpnia' => 8,
+        'września' => 9,
+        'wrzesnia' => 9,
+        'października' => 10,
+        'pazdziernika' => 10,
+        'listopada' => 11,
+        'grudnia' => 12,
+    ];
+
+    $monthPattern = 'stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|wrzesnia|października|pazdziernika|listopada|grudnia';
+
+    if (preg_match('/\bdo\s+(\d{1,2})\s+(' . $monthPattern . ')(?:\s+(\d{4}))?/iu', $text, $match) === 1) {
+        $monthName = function_exists('mb_strtolower') ? mb_strtolower($match[2], 'UTF-8') : strtolower($match[2]);
+        $month = $months[$monthName] ?? null;
+        $day = (int) $match[1];
+
+        if ($month !== null) {
+            $today = new DateTimeImmutable('today');
+            $year = isset($match[3]) && $match[3] !== '' ? (int) $match[3] : (int) $today->format('Y');
+
+            if (checkdate($month, $day, $year)) {
+                $candidate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+
+                if ((!isset($match[3]) || $match[3] === '') && $candidate < $today->modify('-31 days')) {
+                    $year += 1;
+
+                    if (checkdate($month, $day, $year)) {
+                        $candidate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+                    }
+                }
+
+                return $candidate;
+            }
+        }
+    }
+
+    return orlen_vitay_promotion_end_date($text);
+}
+
 function telegram_alert_bot_url(): string
 {
     return 'https://t.me/CenyCPNpl';
@@ -1728,7 +1828,7 @@ function fetch_bp_official_fuel_promotions(): array
 
 function http_get_orlen_vitay(string $url): ?string
 {
-    return http_get_browser_page($url, 'https://vitay.pl/');
+    return http_get_browser_page($url, 'https://www.orlen.pl/');
 }
 
 function orlen_vitay_textual_dates(string $text): array
@@ -1816,22 +1916,37 @@ function fetch_orlen_vitay_fuel_promotions(): array
     $items = [];
     $warnings = [];
     $fetchedAt = new DateTimeImmutable();
-    $sourceUrl = orlen_vitay_promotions_source_url();
+
+    $sourceUrl = orlen_press_fuel_promotion_url();
+
+    if ($sourceUrl === null) {
+        return [
+            'url' => orlen_press_root_url(),
+            'items' => [],
+            'warnings' => ['Nie udalo sie ustalic adresu komunikatu o promocji paliwowej ORLEN.'],
+            'warning' => 'Nie udalo sie ustalic adresu komunikatu o promocji paliwowej ORLEN.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'orlen_press_no_url',
+        ];
+    }
+
     $html = http_get_orlen_vitay($sourceUrl);
 
     if (!is_string($html) || trim($html) === '') {
         return [
             'url' => $sourceUrl,
             'items' => [],
-            'warnings' => ['Nie udalo sie pobrac oficjalnej strony promocji ORLEN VITAY.'],
-            'warning' => 'Nie udalo sie pobrac oficjalnej strony promocji ORLEN VITAY.',
+            'warnings' => ['Nie udalo sie pobrac komunikatu o promocji paliwowej ORLEN.'],
+            'warning' => 'Nie udalo sie pobrac komunikatu o promocji paliwowej ORLEN.',
             'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
-            'sourceMode' => 'orlen_vitay_failed',
+            'sourceMode' => 'orlen_press_failed',
         ];
     }
 
     $lines = html_to_clean_lines($html);
     $text = clean_text(implode(' ', $lines));
+
+    $text = preg_replace('/(\d+)\s*gr\s+na\s+litr/iu', '$1 gr/l', $text) ?? $text;
 
     $fuelSignals = 0;
     foreach (['tankuj', 'benzyn', 'oleju napędowego', 'oleju napedowego', 'efecta', 'verva', 'paliw'] as $needle) {
@@ -1840,7 +1955,7 @@ function fetch_orlen_vitay_fuel_promotions(): array
         }
     }
 
-    $hasPromotion = text_contains_ci($text, 'Promocja');
+    $hasPromotion = text_contains_ci($text, 'promocj');
     $hasDiscount = orlen_vitay_discount_label($text) !== null;
 
     if (!$hasPromotion || !$hasDiscount || $fuelSignals < 2) {
@@ -1850,12 +1965,21 @@ function fetch_orlen_vitay_fuel_promotions(): array
             'warnings' => [],
             'warning' => 'Nie znaleziono aktualnej promocji paliwowej ORLEN VITAY.',
             'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
-            'sourceMode' => 'orlen_vitay_no_fuel_promo',
+            'sourceMode' => 'orlen_press_no_fuel_promo',
         ];
     }
 
-    $to = orlen_vitay_promotion_end_date($text);
+    $to = orlen_press_promotion_end_date($text);
     $discountLabel = orlen_vitay_discount_label($text) ?? '35 gr/l';
+
+    $grValues = [];
+    if (preg_match_all('/([0-9]{1,3})\s*gr\s*\/\s*l/iu', $text, $grMatches) > 0) {
+        $grValues = array_values(array_unique(array_map('intval', $grMatches[1])));
+        sort($grValues);
+    }
+    $baseGr = $grValues[0] ?? 20;
+    $maxGr = $grValues !== [] ? (int) max($grValues) : 35;
+
     $dateRange = [
         'fromLabel' => null,
         'toLabel' => $to?->format('d.m.Y'),
@@ -1864,7 +1988,11 @@ function fetch_orlen_vitay_fuel_promotions(): array
         'rangeLabel' => $to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null,
     ];
 
-    $description = '20 gr/l na benzynę i ON EFECTA lub VERVA albo 35 gr/l przy zakupie na stacji za min. 5 zł. Promocja obowiązuje w weekendy.';
+    $description = sprintf(
+        '%d gr/l na benzyny i olej napędowy (VERVA i EFECTA), do %d gr/l przy jednoczesnych zakupach pozapaliwowych za min. 5 zł. Rabat z kuponem w aplikacji ORLEN VITAY, obowiązuje w weekendy.',
+        $baseGr,
+        $maxGr
+    );
     $title = orlen_vitay_promotion_title($text);
     $item = build_station_promotion_payload(
         'ORLEN',
@@ -1875,7 +2003,7 @@ function fetch_orlen_vitay_fuel_promotions(): array
         $dateRange
     );
     $item['discountLabel'] = $discountLabel;
-    $item['sourceMode'] = 'orlen_vitay_fallback';
+    $item['sourceMode'] = 'orlen_press_fuel_promotions';
 
     $items[] = $item;
     station_promotions_sort($items);
@@ -1887,7 +2015,7 @@ function fetch_orlen_vitay_fuel_promotions(): array
         'warnings' => array_values(array_unique($warnings)),
         'warning' => null,
         'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
-        'sourceMode' => 'orlen_vitay_fuel_promotions',
+        'sourceMode' => 'orlen_press_fuel_promotions',
     ];
 }
 
