@@ -1118,10 +1118,10 @@ function station_network_initial(string $network): string
 function station_logo_url(string $network): ?string
 {
     return match ($network) {
-        'ORLEN' => 'https://www.forfin.pl/2023/wp-content/uploads/sites/4/2023/11/orlen.png',
-        'BP' => 'https://logo-teka.com/wp-content/uploads/2025/08/bp-logo.png',
-        'Shell' => 'https://upload.wikimedia.org/wikipedia/en/thumb/e/e8/Shell_logo.svg/1280px-Shell_logo.svg.png',
-        'MOYA' => 'https://www.turbopomoc.pl/media/partner/24/images/32/preview/moya-stacja.png?v=1662729801',
+        'ORLEN' => 'media/logos/orlen.png',
+        'BP' => 'media/logos/bp.png',
+        'Shell' => 'media/logos/shell.png',
+        'MOYA' => 'media/logos/moya.png',
         default => null,
     };
 }
