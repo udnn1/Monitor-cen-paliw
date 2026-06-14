@@ -5,10 +5,17 @@
 </p>
 
 <p align="center">
-  <img alt="PHP" src="https://img.shields.io/badge/PHP-8.x-777BB4?style=flat-square&logo=php&logoColor=white">
-  <img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=111">
-  <img alt="Chart.js" src="https://img.shields.io/badge/Chart.js-4.x-FF6384?style=flat-square&logo=chartdotjs&logoColor=white">
-  <img alt="Status" src="https://img.shields.io/badge/status-active-1f8a70?style=flat-square">
+  <img alt="PHP" src="https://img.shields.io/badge/PHP-8.x-777BB4?style=for-the-badge&logo=php&logoColor=white&labelColor=474A8A">
+  <img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-vanilla-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black&labelColor=323330">
+  <img alt="HTML5" src="https://img.shields.io/badge/HTML5-markup-E34F26?style=for-the-badge&logo=html5&logoColor=white&labelColor=A8341B">
+  <img alt="CSS3" src="https://img.shields.io/badge/CSS3-styles-1572B6?style=for-the-badge&logo=css3&logoColor=white&labelColor=0E4C82">
+  <img alt="Chart.js" src="https://img.shields.io/badge/Chart.js-4.x-FF6384?style=for-the-badge&logo=chartdotjs&logoColor=white&labelColor=C9304F">
+</p>
+
+<p align="center">
+  <img alt="gov.pl" src="https://img.shields.io/badge/gov.pl-dane-D4213D?style=for-the-badge&logo=gov.uk&logoColor=white&labelColor=8E1428">
+  <img alt="Telegram" src="https://img.shields.io/badge/Telegram-bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=1C7CB0">
+  <img alt="Status" src="https://img.shields.io/badge/status-active-2EA043?style=for-the-badge&logo=statuspage&logoColor=white&labelColor=1A6B2C">
 </p>
 
 ## O projekcie
@@ -90,3 +97,7 @@ Dane robocze są zapisywane lokalnie w katalogu `.paliwa-cache/`:
 - pliki `.lock` – blokady dostępu (flock).
 
 Katalog `.paliwa-cache/` powinien pozostać poza repozytorium.
+
+## Wkład AI
+
+Claude (Anthropic) wykonał wyłącznie **code review** — przegląd kodu. Nie jest autorem ani współautorem kodu projektu.
