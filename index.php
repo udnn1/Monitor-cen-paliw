@@ -2438,13 +2438,50 @@ function fetch_shell_fuel_promotions(): array
     ];
 }
 
-function fetch_station_promotions(): array
+function carry_over_station_promotions(array $previousItems, array $freshNetworks): array
+{
+    if ($previousItems === []) {
+        return [];
+    }
+
+    $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+    $carried = [];
+    $seenNetworks = [];
+
+    foreach ($previousItems as $item) {
+        if (!is_array($item) || empty($item['network'])) {
+            continue;
+        }
+
+        $network = (string) $item['network'];
+
+        if (isset($freshNetworks[$network]) || isset($seenNetworks[$network])) {
+            continue;
+        }
+
+        $toIso = $item['toIso'] ?? null;
+
+        if (is_string($toIso) && $toIso !== '' && $toIso < $today) {
+            continue;
+        }
+
+        $item['carriedOver'] = true;
+        $item['isTopPromotion'] = false;
+        $carried[] = $item;
+        $seenNetworks[$network] = true;
+    }
+
+    return $carried;
+}
+
+function fetch_station_promotions(array $previousItems = []): array
 {
     $bpOfficialPromotions = fetch_bp_official_fuel_promotions();
     $orlenVitayPromotions = fetch_orlen_vitay_fuel_promotions();
     $shellOfficialPromotions = fetch_shell_fuel_promotions();
 
     $items = [];
+    $freshNetworks = [];
 
     foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions] as $source) {
         if (!is_array($source)) {
@@ -2454,8 +2491,13 @@ function fetch_station_promotions(): array
         foreach (($source['items'] ?? []) as $item) {
             if (is_array($item) && !empty($item['network'])) {
                 $items[] = $item;
+                $freshNetworks[(string) $item['network']] = true;
             }
         }
+    }
+
+    foreach (carry_over_station_promotions($previousItems, $freshNetworks) as $carriedItem) {
+        $items[] = $carriedItem;
     }
 
     station_promotions_sort($items);
@@ -4206,15 +4248,19 @@ function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array
     return $cards;
 }
 
-function build_dashboard_payload(): array
+function build_dashboard_payload(array $previousSnapshot = []): array
 {
     $warnings = [];
     $today = new DateTimeImmutable('today');
     $now = new DateTimeImmutable('now');
     $tomorrow = $today->modify('+1 day');
 
+    $previousPromotionItems = is_array($previousSnapshot['stationPromotions']['items'] ?? null)
+        ? $previousSnapshot['stationPromotions']['items']
+        : [];
+
     $announcements = fetch_ministry_announcements(80, $warnings);
-    $stationPromotions = fetch_station_promotions();
+    $stationPromotions = fetch_station_promotions($previousPromotionItems);
     $announcements = append_monitor_polish_fallback_announcement($announcements, $today);
     $announcements = append_monitor_polish_fallback_announcement($announcements, $tomorrow);
 
@@ -4316,7 +4362,8 @@ function empty_dashboard_snapshot(): array
 
 function refresh_dashboard_snapshot_for_target(?DateTimeImmutable $refreshTargetDate): array
 {
-    $freshSnapshot = build_dashboard_payload();
+    $previousSnapshot = load_dashboard_snapshot();
+    $freshSnapshot = build_dashboard_payload(is_array($previousSnapshot) ? $previousSnapshot : []);
     $refreshTargetArticle = null;
     $freshSnapshotHasTargetDate = true;
 
