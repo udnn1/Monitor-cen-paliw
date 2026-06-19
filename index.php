@@ -5294,9 +5294,10 @@ if ($isCronRefresh) {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            min-height: 248px;
-            padding: 1.65rem 1.5rem;
+            justify-content: flex-start;
+            gap: 0.85rem;
+            padding: 1.55rem 1.5rem 0;
+            overflow: hidden;
             text-align: center;
             border-radius: 20px;
             border: 1px solid var(--line);
@@ -5304,6 +5305,14 @@ if ($isCronRefresh) {
                 radial-gradient(circle at 50% 0%, rgba(31, 138, 112, 0.06), transparent 54%),
                 var(--surface-soft);
             box-shadow: 0 10px 28px var(--shadow);
+        }
+
+        .metric-card-top {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+            width: 100%;
         }
 
         .metric-price-row {
@@ -5350,150 +5359,67 @@ if ($isCronRefresh) {
         .delta-neutral { color: #667085; background: rgba(102, 112, 133, 0.10); }
         :root[data-theme="dark"] .delta-neutral { color: #b8c3cc; background: rgba(184, 195, 204, 0.12); }
 
-        .tomorrow-note {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.68rem;
-            width: 100%;
-            margin-top: 1.15rem;
-            padding: 0.78rem 1rem;
-            border: 1px solid rgba(31, 138, 112, 0.13);
-            border-radius: 17px;
-            background:
-                radial-gradient(circle at top left, rgba(31, 138, 112, 0.11), transparent 58%),
-                linear-gradient(135deg, rgba(31, 138, 112, 0.075), rgba(79, 134, 247, 0.055));
-            color: var(--ink);
-            font-size: 0.88rem;
-            line-height: 1.35;
-            text-align: left;
-        }
-
-        .tomorrow-note.delta-up {
-            border-color: rgba(198, 40, 40, 0.16);
-            background:
-                radial-gradient(circle at top left, rgba(198, 40, 40, 0.10), transparent 58%),
-                linear-gradient(135deg, rgba(198, 40, 40, 0.075), rgba(244, 185, 66, 0.055));
-            color: var(--ink);
-        }
-
-        .tomorrow-note.delta-down {
-            border-color: rgba(25, 135, 84, 0.18);
-            background:
-                radial-gradient(circle at top left, rgba(25, 135, 84, 0.11), transparent 58%),
-                linear-gradient(135deg, rgba(25, 135, 84, 0.08), rgba(31, 138, 112, 0.055));
-            color: var(--ink);
-        }
-
-        .tomorrow-note.delta-neutral {
-            border-color: rgba(102, 112, 133, 0.16);
-            background:
-                radial-gradient(circle at top left, rgba(102, 112, 133, 0.08), transparent 58%),
-                linear-gradient(135deg, rgba(102, 112, 133, 0.065), rgba(148, 163, 184, 0.045));
-            color: var(--ink);
-        }
-
-        .tomorrow-empty-note {
-            border: 1px solid rgba(102, 112, 133, 0.10);
-            background: rgba(102, 112, 133, 0.032);
-            color: var(--muted);
-            font-weight: 400;
-            text-align: center;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
-        }
-
-
-        .tomorrow-icon {
-            flex: 0 0 auto;
-            display: grid;
-            place-items: center;
-            width: 2rem;
-            height: 2rem;
-            border-radius: 999px;
-            background: rgba(31, 138, 112, 0.12);
-            color: var(--mint);
-            font-size: 0.92rem;
-            font-weight: 950;
-            line-height: 1;
-            box-shadow: inset 0 0 0 1px rgba(31, 138, 112, 0.10);
-        }
-
-        .tomorrow-note.delta-up .tomorrow-icon {
-            background: rgba(198, 40, 40, 0.11);
-            color: var(--red);
-            box-shadow: inset 0 0 0 1px rgba(198, 40, 40, 0.10);
-        }
-
-        .tomorrow-note.delta-down .tomorrow-icon {
-            background: rgba(25, 135, 84, 0.13);
-            color: var(--green);
-            box-shadow: inset 0 0 0 1px rgba(25, 135, 84, 0.11);
-        }
-
-        .tomorrow-note.delta-neutral .tomorrow-icon {
-            background: rgba(102, 112, 133, 0.10);
-            color: #667085;
-            box-shadow: inset 0 0 0 1px rgba(102, 112, 133, 0.08);
-        }
-
-        .tomorrow-copy { min-width: 0; }
-
-        .tomorrow-title {
-            display: block;
-            color: var(--ink);
-            font-weight: 900;
-            letter-spacing: -0.015em;
-        }
-
-        .tomorrow-main {
-            display: inline-flex;
-            align-items: center;
-            margin-top: 0.08rem;
-            color: var(--muted);
-            font-weight: 500;
-        }
-
-        .tomorrow-value-row {
+        .tomorrow-ribbon {
+            width: calc(100% + 3rem);
+            margin: auto -1.5rem 0;
+            padding: 0.72rem 1rem;
             display: flex;
             flex-wrap: wrap;
-            gap: 0.42rem 0.5rem;
-            align-items: center;
-            margin-top: 0.18rem;
-        }
-
-        .tomorrow-price {
-            font-weight: 500;
-            color: var(--ink);
-        }
-
-        .tomorrow-delta-badge {
-            display: inline-flex;
             align-items: center;
             justify-content: center;
+            gap: 0.45rem 0.6rem;
+            border-top: 1px solid var(--line);
+            color: var(--ink);
+            font-size: 0.9rem;
+            line-height: 1.2;
+        }
+
+        .tomorrow-ribbon-label {
+            font-size: 0.66rem;
+            font-weight: 900;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .tomorrow-ribbon-price { font-weight: 800; color: var(--ink); }
+        .tomorrow-ribbon-main { font-weight: 600; color: var(--muted); }
+
+        .tomorrow-ribbon-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
             border-radius: 999px;
-            padding: 0.24rem 0.56rem;
-            font-size: 0.74rem;
+            padding: 0.22rem 0.52rem;
+            font-size: 0.73rem;
             font-weight: 850;
             line-height: 1;
             white-space: nowrap;
         }
 
-        .tomorrow-note.delta-up .tomorrow-delta-badge {
-            color: var(--red);
-            background: rgba(198, 40, 40, 0.10);
-            box-shadow: inset 0 0 0 1px rgba(198, 40, 40, 0.045);
+        .tomorrow-ribbon.delta-up {
+            border-top-color: rgba(198, 40, 40, 0.18);
+            background: linear-gradient(135deg, rgba(198, 40, 40, 0.10), rgba(244, 185, 66, 0.05));
         }
+        .tomorrow-ribbon.delta-up .tomorrow-ribbon-badge { color: var(--red); background: rgba(198, 40, 40, 0.12); }
 
-        .tomorrow-note.delta-down .tomorrow-delta-badge {
-            color: var(--green);
-            background: rgba(25, 135, 84, 0.10);
-            box-shadow: inset 0 0 0 1px rgba(25, 135, 84, 0.045);
+        .tomorrow-ribbon.delta-down {
+            border-top-color: rgba(25, 135, 84, 0.20);
+            background: linear-gradient(135deg, rgba(25, 135, 84, 0.12), rgba(31, 138, 112, 0.05));
         }
+        .tomorrow-ribbon.delta-down .tomorrow-ribbon-badge { color: var(--green); background: rgba(25, 135, 84, 0.12); }
 
-        .tomorrow-note.delta-neutral .tomorrow-delta-badge {
-            color: #667085;
-            background: rgba(102, 112, 133, 0.10);
-            box-shadow: inset 0 0 0 1px rgba(102, 112, 133, 0.045);
+        .tomorrow-ribbon.delta-neutral {
+            border-top-color: rgba(102, 112, 133, 0.16);
+            background: linear-gradient(135deg, rgba(102, 112, 133, 0.07), rgba(148, 163, 184, 0.045));
+        }
+        .tomorrow-ribbon.delta-neutral .tomorrow-ribbon-badge { color: #667085; background: rgba(102, 112, 133, 0.12); }
+
+        .tomorrow-ribbon-empty {
+            background: rgba(102, 112, 133, 0.04);
+            color: var(--muted);
+            font-size: 0.82rem;
+            font-weight: 500;
         }
 
         :root[data-theme="dark"] .metric-card {
@@ -5502,68 +5428,27 @@ if ($isCronRefresh) {
                 var(--surface-soft);
         }
 
-        :root[data-theme="dark"] .tomorrow-note {
-            border-color: rgba(234, 243, 241, 0.11);
-            background:
-                radial-gradient(circle at top left, rgba(244, 185, 66, 0.10), transparent 60%),
-                linear-gradient(135deg, rgba(234, 243, 241, 0.045), rgba(31, 138, 112, 0.065));
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-up {
+            border-top-color: rgba(198, 40, 40, 0.28);
+            background: linear-gradient(135deg, rgba(198, 40, 40, 0.16), rgba(244, 185, 66, 0.05));
         }
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-up .tomorrow-ribbon-badge { color: #ff6b6b; background: rgba(198, 40, 40, 0.18); }
 
-        :root[data-theme="dark"] .tomorrow-note.delta-neutral {
-            border-color: rgba(184, 195, 204, 0.18);
-            background:
-                radial-gradient(circle at top left, rgba(184, 195, 204, 0.12), transparent 60%),
-                linear-gradient(135deg, rgba(184, 195, 204, 0.075), rgba(102, 112, 133, 0.045));
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-down {
+            border-top-color: rgba(25, 135, 84, 0.26);
+            background: linear-gradient(135deg, rgba(25, 135, 84, 0.18), rgba(31, 138, 112, 0.06));
         }
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-down .tomorrow-ribbon-badge { color: #4cc38a; background: rgba(25, 135, 84, 0.18); }
 
-        :root[data-theme="dark"] .tomorrow-empty-note {
-            border-color: rgba(184, 195, 204, 0.10);
-            background: rgba(184, 195, 204, 0.048);
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-neutral {
+            border-top-color: rgba(184, 195, 204, 0.18);
+            background: linear-gradient(135deg, rgba(184, 195, 204, 0.10), rgba(102, 112, 133, 0.05));
+        }
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-neutral .tomorrow-ribbon-badge { color: #b8c3cc; background: rgba(184, 195, 204, 0.14); }
+
+        :root[data-theme="dark"] .tomorrow-ribbon-empty {
+            background: rgba(184, 195, 204, 0.05);
             color: var(--muted);
-            font-weight: 400;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
-        }
-
-        :root[data-theme="dark"] .tomorrow-icon {
-            background: rgba(234, 243, 241, 0.08);
-            color: #8ee0b4;
-        }
-
-        :root[data-theme="dark"] .tomorrow-note.delta-up {
-            border-color: rgba(198, 40, 40, 0.26);
-            background:
-                radial-gradient(circle at top left, rgba(198, 40, 40, 0.16), transparent 60%),
-                linear-gradient(135deg, rgba(198, 40, 40, 0.10), rgba(244, 185, 66, 0.045));
-        }
-
-        :root[data-theme="dark"] .tomorrow-note.delta-up .tomorrow-icon {
-            background: rgba(198, 40, 40, 0.16);
-            color: #ff6b6b;
-            box-shadow: inset 0 0 0 1px rgba(198, 40, 40, 0.16);
-        }
-
-        :root[data-theme="dark"] .tomorrow-note.delta-down {
-            border-color: rgba(25, 135, 84, 0.24);
-            background:
-                radial-gradient(circle at top left, rgba(25, 135, 84, 0.16), transparent 60%),
-                linear-gradient(135deg, rgba(25, 135, 84, 0.10), rgba(31, 138, 112, 0.055));
-        }
-
-        :root[data-theme="dark"] .tomorrow-note.delta-down .tomorrow-icon {
-            background: rgba(25, 135, 84, 0.16);
-            color: #8ee0b4;
-            box-shadow: inset 0 0 0 1px rgba(25, 135, 84, 0.16);
-        }
-
-        :root[data-theme="dark"] .tomorrow-note.delta-neutral .tomorrow-icon {
-            background: rgba(184, 195, 204, 0.12);
-            color: #b8c3cc;
-            box-shadow: inset 0 0 0 1px rgba(184, 195, 204, 0.10);
-        }
-
-        :root[data-theme="dark"] .tomorrow-note.delta-neutral .tomorrow-delta-badge {
-            color: #b8c3cc;
-            background: rgba(184, 195, 204, 0.12);
         }
 
         .promo-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
@@ -5826,10 +5711,7 @@ if ($isCronRefresh) {
             .dashboard-theme-toggle { width: 100%; margin-left: 0; display: flex; justify-content: center; }
             .dashboard-theme-toggle .theme-switch { width: 100%; min-width: 0; justify-content: center; }
             .dashboard-tab { flex: 1 1 100%; }
-            .metric-card { min-height: 238px; }
             .metric-price-row { gap: 0.55rem; }
-            .tomorrow-note { align-items: center; justify-content: center; }
-            .tomorrow-value-row { justify-content: center; }
             .promo-card { grid-template-columns: 76px 1fr; }
             .promo-logo { width: 76px; height: 76px; border-radius: 14px; font-size: 1.65rem; }
             .alerts-card { grid-template-columns: 1fr; }
@@ -5940,42 +5822,33 @@ if ($isCronRefresh) {
                     $isSameTomorrow = $hasTomorrowPrice && ($card['todayPrice'] ?? null) !== null && abs((float) $card['tomorrowPrice'] - (float) $card['todayPrice']) < 0.0001;
                     ?>
                     <div class="col-md-6 col-lg-4">
-                        <article class="metric-card h-100 p-4">
-                            <p class="text-uppercase small fw-semibold text-secondary mb-2"><?= e((string) ($card['label'] ?? '')) ?></p>
+                        <article class="metric-card h-100">
+                            <div class="metric-card-top">
+                                <p class="text-uppercase small fw-semibold text-secondary mb-0"><?= e((string) ($card['label'] ?? '')) ?></p>
 
-                            <div class="metric-price-row">
-                                <div class="metric-value"><?= e(format_price($card['todayPrice'] ?? null)) ?></div>
+                                <div class="metric-price-row">
+                                    <div class="metric-value"><?= e(format_price($card['todayPrice'] ?? null)) ?></div>
 
-                                <span class="delta-chip <?= e($todayDeltaClass) ?>">
-                                    <span><?= e($todayArrow) ?></span>
-                                    <span><?= e(format_delta($card['todayDelta'] ?? null)) ?></span>
-                                </span>
+                                    <span class="delta-chip <?= e($todayDeltaClass) ?>">
+                                        <span><?= e($todayArrow) ?></span>
+                                        <span><?= e(format_delta($card['todayDelta'] ?? null)) ?></span>
+                                    </span>
+                                </div>
                             </div>
 
                             <?php if ($hasTomorrowPrice): ?>
-                                <div class="tomorrow-note <?= e($tomorrowDeltaClass) ?>">
-                                    <span class="tomorrow-icon" aria-hidden="true">
-                                        <?= $isSameTomorrow ? '✓' : e($tomorrowArrow) ?>
-                                    </span>
+                                <div class="tomorrow-ribbon <?= e($tomorrowDeltaClass) ?>">
+                                    <span class="tomorrow-ribbon-label">Jutro</span>
+                                    <span class="tomorrow-ribbon-price"><?= e(format_price($card['tomorrowPrice'] ?? null)) ?></span>
 
-                                    <span class="tomorrow-copy">
-                                        <span class="tomorrow-title">Jutro</span>
-
-                                        <span class="tomorrow-value-row">
-                                            <span class="tomorrow-price"><?= e(format_price($card['tomorrowPrice'] ?? null)) ?></span>
-
-                                            <?php if ($isSameTomorrow): ?>
-                                                <span class="tomorrow-main">bez zmian</span>
-                                            <?php else: ?>
-                                                <span class="tomorrow-delta-badge"><?= e(format_delta($card['tomorrowDelta'] ?? null)) ?></span>
-                                            <?php endif; ?>
-                                        </span>
-                                    </span>
+                                    <?php if ($isSameTomorrow): ?>
+                                        <span class="tomorrow-ribbon-main">bez zmian</span>
+                                    <?php else: ?>
+                                        <span class="tomorrow-ribbon-badge"><?= e($tomorrowArrow) ?> <?= e(format_delta($card['tomorrowDelta'] ?? null)) ?></span>
+                                    <?php endif; ?>
                                 </div>
                             <?php else: ?>
-                                <div class="tomorrow-note tomorrow-empty-note">
-                                    Brak opublikowanej zmiany na jutro
-                                </div>
+                                <div class="tomorrow-ribbon tomorrow-ribbon-empty">Brak zmiany na jutro</div>
                             <?php endif; ?>
                         </article>
                     </div>
