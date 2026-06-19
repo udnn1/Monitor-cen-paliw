@@ -4223,87 +4223,6 @@ function delta_arrow(?float $value): string
     };
 }
 
-function fuel_recent_prices(array $dashboardData, string $code): array
-{
-    if ($code === '') {
-        return [];
-    }
-
-    $recent = $dashboardData['recentAnnouncements'] ?? [];
-
-    if (!is_array($recent)) {
-        return [];
-    }
-
-    $values = [];
-
-    foreach ($recent as $item) {
-        if (!is_array($item)) {
-            continue;
-        }
-
-        $price = $item['prices'][$code] ?? null;
-
-        if (is_numeric($price)) {
-            $values[] = (float) $price;
-        }
-    }
-
-    return array_slice($values, -24);
-}
-
-function fuel_sparkline_svg(array $values, int $w = 150, int $h = 38): string
-{
-    $n = count($values);
-
-    if ($n < 2) {
-        return '';
-    }
-
-    $pad = 3.0;
-    $min = min($values);
-    $max = max($values);
-    $span = $max - $min;
-    $stepX = ($w - 2 * $pad) / ($n - 1);
-
-    $points = [];
-
-    foreach (array_values($values) as $i => $value) {
-        $x = $pad + $i * $stepX;
-        $y = $span > 0.0 ? $pad + (1 - ($value - $min) / $span) * ($h - 2 * $pad) : $h / 2;
-        $points[] = round($x, 1) . ',' . round($y, 1);
-    }
-
-    $line = implode(' ', $points);
-    [$lastX, $lastY] = explode(',', $points[$n - 1]);
-    $gradientId = 'spark-' . substr(md5($line), 0, 8);
-    $area = $line
-        . ' ' . round($pad + ($n - 1) * $stepX, 1) . ',' . ($h - $pad)
-        . ' ' . $pad . ',' . ($h - $pad);
-
-    return '<svg viewBox="0 0 ' . $w . ' ' . $h . '" preserveAspectRatio="none" role="img" focusable="false" aria-hidden="true">'
-        . '<defs><linearGradient id="' . $gradientId . '" x1="0" y1="0" x2="0" y2="1">'
-        . '<stop offset="0" stop-color="currentColor" stop-opacity="0.22"></stop>'
-        . '<stop offset="1" stop-color="currentColor" stop-opacity="0"></stop>'
-        . '</linearGradient></defs>'
-        . '<polygon points="' . $area . '" fill="url(#' . $gradientId . ')" stroke="none"></polygon>'
-        . '<polyline points="' . $line . '" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>'
-        . '<circle cx="' . $lastX . '" cy="' . $lastY . '" r="2.4" fill="currentColor"></circle>'
-        . '</svg>';
-}
-
-function sparkline_trend_class(array $values): string
-{
-    if (count($values) < 2) {
-        return 'metric-sparkline-neutral';
-    }
-
-    $first = $values[array_key_first($values)];
-    $last = $values[array_key_last($values)];
-
-    return 'metric-sparkline-' . delta_direction($last - $first);
-}
-
 function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array $previousAnnouncement, ?array $tomorrowAnnouncement): array
 {
     $cards = [];
@@ -5376,7 +5295,6 @@ if ($isCronRefresh) {
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 0.55rem;
             min-height: 248px;
             padding: 1.65rem 1.5rem;
             text-align: center;
@@ -5403,34 +5321,6 @@ if ($isCronRefresh) {
             font-size: clamp(2rem, 3.2vw, 2.55rem);
             line-height: 1;
             letter-spacing: -0.055em;
-        }
-
-        .metric-sparkline {
-            display: block;
-            width: 100%;
-            max-width: 200px;
-            margin: 0.1rem auto 0;
-            color: var(--mint);
-        }
-        .metric-sparkline svg { display: block; width: 100%; height: 34px; }
-        :root[data-theme="dark"] .metric-sparkline { color: #6bd6bc; }
-        .metric-sparkline-up { color: var(--red); }
-        .metric-sparkline-down { color: var(--green); }
-        .metric-sparkline-neutral { color: #667085; }
-        :root[data-theme="dark"] .metric-sparkline-up { color: #ff6b6b; }
-        :root[data-theme="dark"] .metric-sparkline-down { color: #4cc38a; }
-        :root[data-theme="dark"] .metric-sparkline-neutral { color: #b8c3cc; }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
         }
 
         .section-title { font-family: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif; letter-spacing: -0.03em; }
@@ -6061,13 +5951,6 @@ if ($isCronRefresh) {
                                     <span><?= e(format_delta($card['todayDelta'] ?? null)) ?></span>
                                 </span>
                             </div>
-
-                            <?php $sparkValues = fuel_recent_prices($dashboardData, (string) ($card['code'] ?? '')); ?>
-                            <?php $sparklineSvg = fuel_sparkline_svg($sparkValues); ?>
-                            <?php if ($sparklineSvg !== ''): ?>
-                                <span class="metric-sparkline <?= e(sparkline_trend_class($sparkValues)) ?>" aria-hidden="true"><?= $sparklineSvg ?></span>
-                                <span class="sr-only">Trend ceny <?= e((string) ($card['label'] ?? '')) ?> z ostatniego miesiąca</span>
-                            <?php endif; ?>
 
                             <?php if ($hasTomorrowPrice): ?>
                                 <div class="tomorrow-note <?= e($tomorrowDeltaClass) ?>">
