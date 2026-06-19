@@ -6254,17 +6254,30 @@ if ($isCronRefresh) {
             ink: styles.getPropertyValue('--ink').trim() || (isDark ? '#eaf3f1' : '#12343b'),
             muted: styles.getPropertyValue('--muted').trim() || (isDark ? '#9fb2b7' : '#4b5563'),
             grid: isDark ? 'rgba(234, 243, 241, 0.10)' : 'rgba(18, 52, 59, 0.08)',
-            gridSoft: isDark ? 'rgba(234, 243, 241, 0.07)' : 'rgba(18, 52, 59, 0.06)'
+            gridSoft: isDark ? 'rgba(234, 243, 241, 0.07)' : 'rgba(18, 52, 59, 0.06)',
+            surface: isDark ? 'rgba(13, 28, 32, 0.96)' : 'rgba(255, 255, 255, 0.98)',
+            surfaceBorder: isDark ? 'rgba(234, 243, 241, 0.16)' : 'rgba(18, 52, 59, 0.12)'
         };
     };
 
     const applyChartTheme = (chart) => {
         const palette = getThemePalette();
         chart.options.plugins.legend.labels.color = palette.ink;
-        chart.options.scales.x.grid.color = palette.gridSoft;
         chart.options.scales.x.ticks.color = palette.muted;
         chart.options.scales.y.grid.color = palette.grid;
         chart.options.scales.y.ticks.color = palette.muted;
+
+        const tip = chart.options.plugins.tooltip;
+        tip.backgroundColor = palette.surface;
+        tip.titleColor = palette.ink;
+        tip.bodyColor = palette.ink;
+        tip.borderColor = palette.surfaceBorder;
+
+        chart.data.datasets.forEach((dataset) => {
+            dataset.pointBorderColor = palette.surface;
+            dataset.pointHoverBorderColor = palette.surface;
+        });
+
         chart.update('none');
     };
 
@@ -6313,6 +6326,39 @@ if ($isCronRefresh) {
         } catch (error) {}
     };
 
+    const hexToRgba = (hex, alpha) => {
+        const clean = String(hex).replace('#', '');
+        const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
+        const num = parseInt(full, 16);
+        return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+    };
+
+    const makeAreaGradient = (context, hex) => {
+        const { ctx, chartArea } = context.chart;
+        if (!chartArea) return hexToRgba(hex, 0);
+        const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+        gradient.addColorStop(0, hexToRgba(hex, 0.24));
+        gradient.addColorStop(0.55, hexToRgba(hex, 0.07));
+        gradient.addColorStop(1, hexToRgba(hex, 0));
+        return gradient;
+    };
+
+    const lineGlowPlugin = {
+        id: 'lineGlow',
+        beforeDatasetDraw(chart, args) {
+            const meta = chart.getDatasetMeta(args.index);
+            if (!meta || meta.type !== 'line' || meta.hidden) return;
+            const dataset = chart.data.datasets[args.index];
+            chart.ctx.save();
+            chart.ctx.shadowColor = hexToRgba(dataset.borderColor, 0.30);
+            chart.ctx.shadowBlur = 7;
+            chart.ctx.shadowOffsetY = 3;
+        },
+        afterDatasetDraw(chart) {
+            chart.ctx.restore();
+        }
+    };
+
     const renderCharts = () => {
         if (chartsRendered || typeof window.Chart === 'undefined') return;
         chartsRendered = true;
@@ -6340,29 +6386,42 @@ if ($isCronRefresh) {
                         label: fuel,
                         data: recentItems.map((item) => item.prices?.[fuel] ?? null),
                         borderColor: fuelStyles[fuel].border,
-                        backgroundColor: fuelStyles[fuel].background,
+                        backgroundColor: (context) => makeAreaGradient(context, fuelStyles[fuel].border),
                         pointBackgroundColor: fuelStyles[fuel].border,
+                        pointBorderColor: palette.surface,
+                        pointBorderWidth: 2,
+                        pointHoverBackgroundColor: fuelStyles[fuel].border,
+                        pointHoverBorderColor: palette.surface,
+                        pointHoverBorderWidth: 2.5,
                         hidden: storedHiddenFuels[fuel] === true,
-                        tension: 0.32,
+                        tension: 0.4,
                         spanGaps: true,
-                        borderWidth: 3,
-                        pointRadius: 4,
-                        pointHoverRadius: 6,
-                        fill: false
+                        borderWidth: 2.5,
+                        borderCapStyle: 'round',
+                        borderJoinStyle: 'round',
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        pointHitRadius: 16,
+                        fill: true
                     }))
                 },
                 options: {
-                    animation: false,
+                    animation: { duration: 750, easing: 'easeOutQuart' },
                     maintainAspectRatio: false,
+                    layout: { padding: { top: 10, right: 10, bottom: 0, left: 4 } },
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: {
                             position: 'top',
+                            align: 'end',
                             labels: {
                                 usePointStyle: true,
-                                boxWidth: 10,
+                                pointStyle: 'circle',
+                                boxWidth: 8,
+                                boxHeight: 8,
+                                padding: 16,
                                 color: palette.ink,
-                                font: { family: bodyFontFamily, weight: '600' }
+                                font: { family: bodyFontFamily, weight: '600', size: 13 }
                             },
                             onClick: (event, legendItem, legend) => {
                                 const chart = legend.chart;
@@ -6376,26 +6435,44 @@ if ($isCronRefresh) {
                             }
                         },
                         tooltip: {
+                            usePointStyle: true,
+                            backgroundColor: palette.surface,
+                            titleColor: palette.ink,
+                            bodyColor: palette.ink,
+                            borderColor: palette.surfaceBorder,
+                            borderWidth: 1,
+                            cornerRadius: 12,
+                            padding: 12,
+                            boxPadding: 6,
+                            titleFont: { family: bodyFontFamily, weight: '700', size: 13 },
+                            bodyFont: { family: bodyFontFamily, weight: '600', size: 13 },
                             callbacks: {
                                 title: (contexts) => contexts[0]?.label || '',
-                                label: (context) => `${context.dataset.label}: ${formatPrice(context.raw)}`
+                                label: (context) => ` ${context.dataset.label}: ${formatPrice(context.raw)}`,
+                                labelPointStyle: () => ({ pointStyle: 'circle', rotation: 0 })
                             }
                         }
                     },
                     scales: {
                         x: {
-                            grid: { color: palette.gridSoft },
-                            ticks: { color: palette.muted, maxRotation: 0, autoSkip: true }
+                            border: { display: false },
+                            grid: { display: false },
+                            ticks: { color: palette.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, padding: 8, font: { family: bodyFontFamily, size: 12 } }
                         },
                         y: {
-                            grid: { color: palette.grid },
+                            border: { display: false },
+                            grid: { color: palette.grid, drawTicks: false },
                             ticks: {
                                 color: palette.muted,
+                                padding: 10,
+                                maxTicksLimit: 6,
+                                font: { family: bodyFontFamily, size: 12 },
                                 callback: (value) => `${Number(value).toFixed(2).replace('.', ',')} zł`
                             }
                         }
                     }
-                }
+                },
+                plugins: [lineGlowPlugin]
             });
         }
     };
