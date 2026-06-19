@@ -4223,54 +4223,6 @@ function delta_arrow(?float $value): string
     };
 }
 
-function fuel_sparkline_expression(array $dashboardData, string $code): ?string
-{
-    if ($code === '') {
-        return null;
-    }
-
-    $recent = $dashboardData['recentAnnouncements'] ?? [];
-
-    if (!is_array($recent)) {
-        return null;
-    }
-
-    $values = [];
-
-    foreach ($recent as $item) {
-        if (!is_array($item)) {
-            continue;
-        }
-
-        $price = $item['prices'][$code] ?? null;
-
-        if (is_numeric($price)) {
-            $values[] = (float) $price;
-        }
-    }
-
-    if (count($values) < 2) {
-        return null;
-    }
-
-    $values = array_slice($values, -20);
-    $min = min($values);
-    $max = max($values);
-    $span = $max - $min;
-
-    $points = array_map(static function (float $value) use ($min, $span): int {
-        if ($span <= 0.0) {
-            return 50;
-        }
-
-        $scaled = (int) round((($value - $min) / $span) * 80) + 10;
-
-        return max(0, min(100, $scaled));
-    }, $values);
-
-    return '{l:' . implode(',', $points) . '}';
-}
-
 function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array $previousAnnouncement, ?array $tomorrowAnnouncement): array
 {
     $cards = [];
@@ -5005,14 +4957,6 @@ if ($isCronRefresh) {
         .text-secondary { color: var(--muted); }
         .fw-bold { font-weight: 700; }
         .fw-semibold { font-weight: 600; }
-        @font-face {
-            font-family: "Datatype";
-            src: url("media/fonts/Datatype.woff2") format("woff2");
-            font-weight: 100 900;
-            font-stretch: 50% 200%;
-            font-display: swap;
-        }
-
         .font-display { font-family: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif; letter-spacing: -0.04em; }
         .display-5 { font-size: clamp(2.1rem, 4vw, 3.6rem); line-height: 0.98; }
         .h1 { font-size: clamp(1.6rem, 2vw, 2.2rem); line-height: 1.1; }
@@ -5377,33 +5321,6 @@ if ($isCronRefresh) {
             font-size: clamp(2rem, 3.2vw, 2.55rem);
             line-height: 1;
             letter-spacing: -0.055em;
-        }
-
-        .metric-sparkline {
-            font-family: "Datatype", monospace;
-            font-variation-settings: "wght" 600, "wdth" 110;
-            font-feature-settings: "liga" 1, "calt" 1;
-            font-variant-ligatures: contextual common-ligatures;
-            font-size: 2.3rem;
-            line-height: 0.8;
-            margin-top: 0.95rem;
-            color: var(--mint);
-            opacity: 0.9;
-            letter-spacing: 0;
-            user-select: none;
-        }
-        :root[data-theme="dark"] .metric-sparkline { color: #6bd6bc; }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
         }
 
         .section-title { font-family: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif; letter-spacing: -0.03em; }
@@ -6034,12 +5951,6 @@ if ($isCronRefresh) {
                                     <span><?= e(format_delta($card['todayDelta'] ?? null)) ?></span>
                                 </span>
                             </div>
-
-                            <?php $sparkline = fuel_sparkline_expression($dashboardData, (string) ($card['code'] ?? '')); ?>
-                            <?php if ($sparkline !== null): ?>
-                                <span class="metric-sparkline" aria-hidden="true"><?= e($sparkline) ?></span>
-                                <span class="sr-only">Trend ceny z ostatniego miesiąca</span>
-                            <?php endif; ?>
 
                             <?php if ($hasTomorrowPrice): ?>
                                 <div class="tomorrow-note <?= e($tomorrowDeltaClass) ?>">
