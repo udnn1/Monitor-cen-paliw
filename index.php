@@ -5401,19 +5401,19 @@ if ($isCronRefresh) {
             border-top-color: rgba(198, 40, 40, 0.32);
             background: linear-gradient(135deg, rgba(198, 40, 40, 0.18), rgba(244, 185, 66, 0.09));
         }
-        .tomorrow-ribbon.delta-up .tomorrow-ribbon-badge { color: #fff; background: var(--red); }
+        .tomorrow-ribbon.delta-up .tomorrow-ribbon-badge { color: var(--red); background: rgba(198, 40, 40, 0.12); }
 
         .tomorrow-ribbon.delta-down {
             border-top-color: rgba(25, 135, 84, 0.38);
             background: linear-gradient(135deg, rgba(25, 135, 84, 0.24), rgba(31, 138, 112, 0.14));
         }
-        .tomorrow-ribbon.delta-down .tomorrow-ribbon-badge { color: #fff; background: var(--green); }
+        .tomorrow-ribbon.delta-down .tomorrow-ribbon-badge { color: var(--green); background: rgba(25, 135, 84, 0.12); }
 
         .tomorrow-ribbon.delta-neutral {
             border-top-color: rgba(102, 112, 133, 0.22);
             background: linear-gradient(135deg, rgba(102, 112, 133, 0.11), rgba(148, 163, 184, 0.07));
         }
-        .tomorrow-ribbon.delta-neutral .tomorrow-ribbon-badge { color: #667085; background: rgba(102, 112, 133, 0.14); }
+        .tomorrow-ribbon.delta-neutral .tomorrow-ribbon-badge { color: #667085; background: rgba(102, 112, 133, 0.12); }
 
         .tomorrow-ribbon-empty {
             background: rgba(102, 112, 133, 0.04);
@@ -5432,19 +5432,19 @@ if ($isCronRefresh) {
             border-top-color: rgba(255, 107, 107, 0.42);
             background: linear-gradient(135deg, rgba(198, 40, 40, 0.30), rgba(244, 185, 66, 0.09));
         }
-        :root[data-theme="dark"] .tomorrow-ribbon.delta-up .tomorrow-ribbon-badge { color: #2a0d0d; background: #ff6b6b; }
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-up .tomorrow-ribbon-badge { color: #ff6b6b; background: rgba(198, 40, 40, 0.18); }
 
         :root[data-theme="dark"] .tomorrow-ribbon.delta-down {
             border-top-color: rgba(76, 195, 138, 0.46);
             background: linear-gradient(135deg, rgba(25, 135, 84, 0.34), rgba(76, 195, 138, 0.18));
         }
-        :root[data-theme="dark"] .tomorrow-ribbon.delta-down .tomorrow-ribbon-badge { color: #06231a; background: #4cc38a; }
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-down .tomorrow-ribbon-badge { color: #4cc38a; background: rgba(25, 135, 84, 0.18); }
 
         :root[data-theme="dark"] .tomorrow-ribbon.delta-neutral {
             border-top-color: rgba(184, 195, 204, 0.24);
             background: linear-gradient(135deg, rgba(184, 195, 204, 0.14), rgba(102, 112, 133, 0.07));
         }
-        :root[data-theme="dark"] .tomorrow-ribbon.delta-neutral .tomorrow-ribbon-badge { color: #b8c3cc; background: rgba(184, 195, 204, 0.16); }
+        :root[data-theme="dark"] .tomorrow-ribbon.delta-neutral .tomorrow-ribbon-badge { color: #b8c3cc; background: rgba(184, 195, 204, 0.14); }
 
         :root[data-theme="dark"] .tomorrow-ribbon-empty {
             background: rgba(184, 195, 204, 0.05);
