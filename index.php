@@ -4292,6 +4292,18 @@ function fuel_sparkline_svg(array $values, int $w = 150, int $h = 38): string
         . '</svg>';
 }
 
+function sparkline_trend_class(array $values): string
+{
+    if (count($values) < 2) {
+        return 'metric-sparkline-neutral';
+    }
+
+    $first = $values[array_key_first($values)];
+    $last = $values[array_key_last($values)];
+
+    return 'metric-sparkline-' . delta_direction($last - $first);
+}
+
 function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array $previousAnnouncement, ?array $tomorrowAnnouncement): array
 {
     $cards = [];
@@ -5402,6 +5414,12 @@ if ($isCronRefresh) {
         }
         .metric-sparkline svg { display: block; width: 100%; height: 34px; }
         :root[data-theme="dark"] .metric-sparkline { color: #6bd6bc; }
+        .metric-sparkline-up { color: var(--red); }
+        .metric-sparkline-down { color: var(--green); }
+        .metric-sparkline-neutral { color: #667085; }
+        :root[data-theme="dark"] .metric-sparkline-up { color: #ff6b6b; }
+        :root[data-theme="dark"] .metric-sparkline-down { color: #4cc38a; }
+        :root[data-theme="dark"] .metric-sparkline-neutral { color: #b8c3cc; }
 
         .sr-only {
             position: absolute;
@@ -6044,9 +6062,10 @@ if ($isCronRefresh) {
                                 </span>
                             </div>
 
-                            <?php $sparklineSvg = fuel_sparkline_svg(fuel_recent_prices($dashboardData, (string) ($card['code'] ?? ''))); ?>
+                            <?php $sparkValues = fuel_recent_prices($dashboardData, (string) ($card['code'] ?? '')); ?>
+                            <?php $sparklineSvg = fuel_sparkline_svg($sparkValues); ?>
                             <?php if ($sparklineSvg !== ''): ?>
-                                <span class="metric-sparkline" aria-hidden="true"><?= $sparklineSvg ?></span>
+                                <span class="metric-sparkline <?= e(sparkline_trend_class($sparkValues)) ?>" aria-hidden="true"><?= $sparklineSvg ?></span>
                                 <span class="sr-only">Trend ceny <?= e((string) ($card['label'] ?? '')) ?> z ostatniego miesiąca</span>
                             <?php endif; ?>
 
