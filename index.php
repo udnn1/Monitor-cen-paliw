@@ -3640,6 +3640,7 @@ function rebuild_dashboard_price_fields(array $snapshot, array $announcements): 
     }
 
     $previousAnnouncement = find_previous_announcement($announcements, $currentAnnouncement);
+    $yesterdayAnnouncement = find_active_announcement($announcements, $today->modify('-1 day'));
     $tomorrowAnnouncement = find_active_announcement_strict($announcements, $tomorrow);
 
     $fuelLabels = is_array($snapshot['fuelLabels'] ?? null) && $snapshot['fuelLabels'] !== []
@@ -3677,7 +3678,7 @@ function rebuild_dashboard_price_fields(array $snapshot, array $announcements): 
     $snapshot['previousAnnouncement'] = $previousAnnouncement;
     $snapshot['tomorrowAnnouncement'] = $tomorrowAnnouncement;
     $snapshot['fuelLabels'] = $fuelLabels;
-    $snapshot['fuelCards'] = build_fuel_cards($fuelLabels, $currentAnnouncement, $previousAnnouncement, $tomorrowAnnouncement);
+    $snapshot['fuelCards'] = build_fuel_cards($fuelLabels, $currentAnnouncement, $yesterdayAnnouncement, $tomorrowAnnouncement);
     $snapshot['dashboardData'] = [
         'recentAnnouncements' => $chartAnnouncements,
     ];
@@ -4223,13 +4224,13 @@ function delta_arrow(?float $value): string
     };
 }
 
-function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array $previousAnnouncement, ?array $tomorrowAnnouncement): array
+function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array $yesterdayAnnouncement, ?array $tomorrowAnnouncement): array
 {
     $cards = [];
 
     foreach ($fuelLabels as $code => $label) {
         $todayPrice = $currentAnnouncement['prices'][$code] ?? null;
-        $previousPrice = $previousAnnouncement['prices'][$code] ?? null;
+        $previousPrice = $yesterdayAnnouncement['prices'][$code] ?? null;
         $tomorrowPrice = $tomorrowAnnouncement['prices'][$code] ?? null;
 
         $todayDelta = ($todayPrice !== null && $previousPrice !== null) ? round($todayPrice - $previousPrice, 2) : null;
@@ -4266,6 +4267,7 @@ function build_dashboard_payload(array $previousSnapshot = []): array
 
     $currentAnnouncement = find_active_announcement($announcements, $today);
     $previousAnnouncement = find_previous_announcement($announcements, $currentAnnouncement);
+    $yesterdayAnnouncement = find_active_announcement($announcements, $today->modify('-1 day'));
 
     $tomorrowAnnouncement = find_active_announcement_strict($announcements, $tomorrow);
 
@@ -4282,7 +4284,7 @@ function build_dashboard_payload(array $previousSnapshot = []): array
         'ON' => 'ON',
     ];
 
-    $fuelCards = build_fuel_cards($fuelLabels, $currentAnnouncement, $previousAnnouncement, $tomorrowAnnouncement);
+    $fuelCards = build_fuel_cards($fuelLabels, $currentAnnouncement, $yesterdayAnnouncement, $tomorrowAnnouncement);
 
     $chartAnnouncements = array_map(static function (array $item): array {
         $chartDateIso = announcement_chart_date_iso($item);
@@ -5832,7 +5834,7 @@ if ($isCronRefresh) {
 
                                     <span class="delta-chip <?= e($todayDeltaClass) ?>">
                                         <span><?= e($todayArrow) ?></span>
-                                        <span><?= e(format_delta($card['todayDelta'] ?? null)) ?></span>
+                                        <span><?= $todayDeltaClass === 'delta-neutral' ? 'bez zmian' : e(format_delta($card['todayDelta'] ?? null)) ?></span>
                                     </span>
                                 </div>
                             </div>
