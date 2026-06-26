@@ -1315,6 +1315,23 @@ function station_promotion_discount_condition_penalty(array $item): int
     );
 }
 
+function station_promotion_rank_metrics(array $item): array
+{
+    $network = (string) ($item['network'] ?? '');
+    $headline = is_numeric($item['discountValueGrPerL'] ?? null) ? (int) $item['discountValueGrPerL'] : -1;
+
+    return match ($network) {
+        'BP' => ['value' => $headline, 'penalty' => 0],
+        'Circle K' => ['value' => 30, 'penalty' => 0],
+        'Shell' => ['value' => $headline, 'penalty' => 1],
+        'ORLEN' => ['value' => $headline, 'penalty' => 2],
+        default => [
+            'value' => $headline,
+            'penalty' => station_promotion_discount_condition_penalty($item),
+        ],
+    };
+}
+
 function station_promotions_sort(array &$items): void
 {
     usort($items, static function (array $left, array $right): int {
@@ -1325,18 +1342,15 @@ function station_promotions_sort(array &$items): void
             return $rightActive <=> $leftActive;
         }
 
-        $leftDiscount = is_numeric($left['discountValueGrPerL'] ?? null) ? (int) $left['discountValueGrPerL'] : -1;
-        $rightDiscount = is_numeric($right['discountValueGrPerL'] ?? null) ? (int) $right['discountValueGrPerL'] : -1;
+        $leftRank = station_promotion_rank_metrics($left);
+        $rightRank = station_promotion_rank_metrics($right);
 
-        if ($leftDiscount !== $rightDiscount) {
-            return $rightDiscount <=> $leftDiscount;
+        if ($leftRank['penalty'] !== $rightRank['penalty']) {
+            return $leftRank['penalty'] <=> $rightRank['penalty'];
         }
 
-        $leftPenalty = station_promotion_discount_condition_penalty($left);
-        $rightPenalty = station_promotion_discount_condition_penalty($right);
-
-        if ($leftPenalty !== $rightPenalty) {
-            return $leftPenalty <=> $rightPenalty;
+        if ($leftRank['value'] !== $rightRank['value']) {
+            return $rightRank['value'] <=> $leftRank['value'];
         }
 
         $leftTo = $left['toIso'] ?? '9999-12-31';
@@ -1370,15 +1384,13 @@ function mark_top_station_promotions(array &$items): void
             continue;
         }
 
-        $score = is_numeric($item['discountValueGrPerL'] ?? null)
-            ? (int) $item['discountValueGrPerL']
-            : 0;
-
-        $penalty = station_promotion_discount_condition_penalty($item);
+        $rank = station_promotion_rank_metrics($item);
+        $score = $rank['value'];
+        $penalty = $rank['penalty'];
 
         if (
-            $score > $bestScore
-            || ($score === $bestScore && $penalty < $bestPenalty)
+            $penalty < $bestPenalty
+            || ($penalty === $bestPenalty && $score > $bestScore)
         ) {
             $bestScore = $score;
             $bestPenalty = $penalty;
