@@ -2440,7 +2440,20 @@ function fetch_shell_fuel_promotions(): array
         $item['discountValueGrPerL'] = $headlineValue;
     }
 
-    $item['segments'] = $segments;
+    if (count($segments) === 1) {
+        $onlySegment = $segments[0];
+
+        if (is_string($onlySegment['text'] ?? null) && trim($onlySegment['text']) !== '') {
+            $item['description'] = $onlySegment['text'];
+        }
+
+        if (is_string($onlySegment['url'] ?? null) && trim($onlySegment['url']) !== '') {
+            $item['url'] = $onlySegment['url'];
+        }
+    } else {
+        $item['segments'] = $segments;
+    }
+
     $item['sourceMode'] = 'shell_official';
 
     $items = [$item];
