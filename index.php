@@ -2561,6 +2561,7 @@ function fetch_circlek_fuel_promotions(): array
     $item['discountLabel'] = 'do ' . $maxValue . ' gr/l';
     $item['discountValueGrPerL'] = $maxValue;
     $item['discountIsUpTo'] = true;
+    $item['discountConditionPenalty'] = 2;
     $item['sourceMode'] = 'circlek_official';
 
     $items = [$item];
