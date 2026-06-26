@@ -894,6 +894,11 @@ function orlen_vitay_promotions_source_url(): string
     return 'https://vitay.pl/rabaty';
 }
 
+function circlek_promotions_source_url(): string
+{
+    return 'https://www.circlek.pl/kupony';
+}
+
 function orlen_press_root_url(): string
 {
     return 'https://www.orlen.pl/pl';
@@ -1122,6 +1127,7 @@ function station_logo_url(string $network): ?string
         'BP' => 'media/logos/bp.png',
         'Shell' => 'media/logos/shell.png',
         'MOYA' => 'media/logos/moya.png',
+        'Circle K' => 'media/logos/circlek.svg',
         default => null,
     };
 }
@@ -2438,6 +2444,139 @@ function fetch_shell_fuel_promotions(): array
     ];
 }
 
+function circlek_parse_validity(string $text): array
+{
+    if (preg_match('/od\s*(\d{1,2})[.\-](\d{1,2})(?:[.\-](\d{2,4}))?\s*do\s*(\d{1,2})[.\-](\d{1,2})[.\-](\d{2,4})/iu', $text, $m) === 1) {
+        $toYear = (int) $m[6];
+        if ($toYear < 100) {
+            $toYear += 2000;
+        }
+
+        $fromYear = ($m[3] ?? '') !== '' ? (int) $m[3] : $toYear;
+        if ($fromYear < 100) {
+            $fromYear += 2000;
+        }
+
+        return [
+            'fromIso' => sprintf('%04d-%02d-%02d', $fromYear, (int) $m[2], (int) $m[1]),
+            'toIso' => sprintf('%04d-%02d-%02d', $toYear, (int) $m[5], (int) $m[4]),
+        ];
+    }
+
+    return ['fromIso' => null, 'toIso' => null];
+}
+
+function circlek_collect_tiers(string $text): array
+{
+    $tiers = [];
+    $seen = [];
+
+    if (preg_match_all('/(\d{1,3})\s*gr\s*\/?\s*l\s+na\s+((?:paliwa|lpg)[^\d]*?)(?=\s*\d{1,3}\s*gr\s*\/?\s*l|\s*Rabat\b|$)/iu', $text, $matches, PREG_SET_ORDER) > 0) {
+        foreach ($matches as $m) {
+            $value = (int) $m[1];
+            $fuel = trim(rtrim(clean_text($m[2]), " .,-"));
+
+            if ($value <= 0 || $value > 99 || $fuel === '' || isset($seen[$fuel])) {
+                continue;
+            }
+
+            $seen[$fuel] = true;
+            $tiers[] = ['value' => $value, 'fuel' => $fuel];
+        }
+    }
+
+    return $tiers;
+}
+
+function fetch_circlek_fuel_promotions(): array
+{
+    $fetchedAt = new DateTimeImmutable();
+    $url = circlek_promotions_source_url();
+    $html = http_get($url);
+
+    if ($html === null || trim($html) === '') {
+        return [
+            'url' => $url,
+            'items' => [],
+            'warnings' => ['Nie udalo sie pobrac oficjalnej strony promocji Circle K.'],
+            'warning' => 'Nie udalo sie pobrac oficjalnej strony promocji Circle K.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'circlek_failed',
+        ];
+    }
+
+    $text = implode(' ', html_to_clean_lines($html));
+    $tiers = circlek_collect_tiers($text);
+
+    if ($tiers === []) {
+        return [
+            'url' => $url,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Nie znaleziono aktualnych promocji paliwowych Circle K.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'circlek_no_fuel_promo',
+        ];
+    }
+
+    $validity = circlek_parse_validity($text);
+
+    $maxValue = 0;
+    foreach ($tiers as $tier) {
+        if ($tier['value'] > $maxValue) {
+            $maxValue = $tier['value'];
+        }
+    }
+
+    $tierParts = array_map(
+        static fn (array $tier): string => $tier['value'] . ' gr/l na ' . $tier['fuel'],
+        $tiers
+    );
+
+    $extra = [];
+    if (preg_match('/do\s*(\d{1,3})\s*litr/iu', $text, $litres) === 1) {
+        $extra[] = 'rabat do ' . (int) $litres[1] . ' l na transakcję';
+    }
+    $extra[] = 'co tydzień nowy kupon w aplikacji Circle K extra';
+
+    $description = 'Letnie rabaty na paliwo: ' . implode(', ', $tierParts) . '. ' . ucfirst(implode(', ', $extra)) . '.';
+
+    $dateRange = [
+        'fromLabel' => null,
+        'toLabel' => $validity['toIso'],
+        'fromIso' => $validity['fromIso'],
+        'toIso' => $validity['toIso'],
+        'rangeLabel' => null,
+    ];
+
+    $item = build_station_promotion_payload(
+        'Circle K',
+        'Letnie rabaty',
+        $description,
+        $url,
+        $url,
+        $dateRange
+    );
+
+    $item['discountLabel'] = 'do ' . $maxValue . ' gr/l';
+    $item['discountValueGrPerL'] = $maxValue;
+    $item['discountIsUpTo'] = true;
+    $item['sourceMode'] = 'circlek_official';
+
+    $items = [$item];
+    station_promotions_sort($items);
+    mark_top_station_promotions($items);
+
+    return [
+        'url' => $url,
+        'items' => $items,
+        'warnings' => [],
+        'warning' => null,
+        'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+        'sourceMode' => 'circlek_fuel_promotions',
+    ];
+}
+
 function carry_over_station_promotions(array $previousItems, array $freshNetworks): array
 {
     if ($previousItems === []) {
@@ -2479,11 +2618,12 @@ function fetch_station_promotions(array $previousItems = []): array
     $bpOfficialPromotions = fetch_bp_official_fuel_promotions();
     $orlenVitayPromotions = fetch_orlen_vitay_fuel_promotions();
     $shellOfficialPromotions = fetch_shell_fuel_promotions();
+    $circlekPromotions = fetch_circlek_fuel_promotions();
 
     $items = [];
     $freshNetworks = [];
 
-    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions] as $source) {
+    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions, $circlekPromotions] as $source) {
         if (!is_array($source)) {
             continue;
         }
@@ -2506,7 +2646,8 @@ function fetch_station_promotions(array $previousItems = []): array
     $warnings = array_values(array_unique(array_merge(
         $bpOfficialPromotions['warnings'] ?? [],
         $orlenVitayPromotions['warnings'] ?? [],
-        $shellOfficialPromotions['warnings'] ?? []
+        $shellOfficialPromotions['warnings'] ?? [],
+        $circlekPromotions['warnings'] ?? []
     )));
 
     return [
