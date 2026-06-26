@@ -2315,6 +2315,19 @@ function shell_build_premium_segment(array $teaser): ?array
     ];
 }
 
+function shell_promotions_description(int $count): string
+{
+    $phrase = match ($count) {
+        1 => 'Aktualna promocja',
+        2 => 'Dwie aktualne promocje',
+        3 => 'Trzy aktualne promocje',
+        4 => 'Cztery aktualne promocje',
+        default => $count . ' aktualnych promocji',
+    };
+
+    return $phrase . ' na paliwo na stacjach Shell:';
+}
+
 function fetch_shell_fuel_promotions(): array
 {
     $fetchedAt = new DateTimeImmutable();
@@ -2416,7 +2429,7 @@ function fetch_shell_fuel_promotions(): array
     $item = build_station_promotion_payload(
         'Shell',
         'Promocje paliwowe',
-        'Dwie aktualne promocje na paliwo na stacjach Shell:',
+        shell_promotions_description(count($segments)),
         $summerTeaser['url'] ?? $listingUrl,
         $listingUrl,
         $dateRange
