@@ -3654,7 +3654,7 @@ if ($isCronRefresh) {
         .promo-item.top .pi-disc .num { color:#8a5a00; }
         :root[data-theme="dark"] .promo-item.top .pi-disc .num { color:#f4b942; }
         .pi-disc .unit { font-size:.62rem; font-weight:700; color:var(--muted); letter-spacing:.02em; margin-top:.12rem; }
-        .pi-rabaty { display:flex; flex-direction:column; align-items:stretch; gap:.4rem; width:160px; flex:0 0 auto; }
+        .pi-rabaty { display:flex; flex-direction:column; align-items:stretch; gap:.4rem; width:124px; flex:0 0 auto; }
         .pi-lpg { width:100%; box-sizing:border-box; display:flex; align-items:center; justify-content:center; text-align:center; gap:.25rem; font-size:.78rem; font-weight:800; color:var(--green-deep); background:rgba(31,138,112,.10); border:1px solid rgba(31,138,112,.18); border-radius:12px; padding:.4rem .5rem; }
         :root[data-theme="dark"] .pi-lpg { color:#8ee0b4; }
         .divider { height:1px; background:linear-gradient(90deg, transparent, var(--line) 12%, var(--line) 88%, transparent); }
@@ -4015,7 +4015,7 @@ if ($isCronRefresh) {
                   </div>
                 </div>
                 <div class="pi-rabaty">
-                  <div class="pi-disc"><div class="num">${o.upto?'do ':'−'}${o.v}</div><div class="unit">gr/l · benzyna i diesel</div></div>
+                  <div class="pi-disc"><div class="num">${o.upto?'do ':'−'}${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
                   ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do ':'−'}${lpg.v} gr/l</span>`:''}
                 </div>
               </div>

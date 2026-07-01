@@ -58,4 +58,5 @@ napędowy. Prezentacja: pojedynczy panel z siatką promocji, oznaczeniem
 
 ## Rozwój
 
-Claude nie pisze kodu w tym projekcie — jego rola ogranicza się wyłącznie do code review.
+Kod projektu powstaje samodzielnie. Claude pełni tu rolę wyłącznie recenzenta —
+wspiera proces przez code review, nie uczestnicząc w pisaniu kodu.
