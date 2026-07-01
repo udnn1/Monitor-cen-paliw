@@ -2990,7 +2990,7 @@ if (isset($stationPromotions['items']) && is_array($stationPromotions['items']))
 }
 
 $promoConditions = [
-    'BP' => 'bezwarunkowo',
+    'BP' => 'bezwarunkowo (z aplikacją BPme)',
     'Shell' => 'dowolny produkt Shell',
     'ORLEN' => 'min. 5 zł zakupów',
     'Circle K' => 'na miles',
@@ -3828,7 +3828,7 @@ if ($isCronRefresh) {
         const maxV = Math.max(...rows.map(r=>r.off.v));
         let nearest = null, nearestNet = '';
         rows.forEach(r=>{ const d=pDays(r.it.toIso); if(d!==null&&d>=0&&(nearest===null||d<nearest)){ nearest=d; nearestNet=r.it.net; } });
-        const uncond = rows.filter(r=>!r.off.upto && r.it.cond==='bezwarunkowo').sort((a,b)=>b.off.g-a.off.g)[0];
+        const uncond = rows.filter(r=>!r.off.upto && r.it.cond.startsWith('bezwarunkowo')).sort((a,b)=>b.off.g-a.off.g)[0];
         spot.innerHTML = `
           <div class="hero">
             <div class="hero-id">
