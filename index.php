@@ -3081,6 +3081,7 @@ if ($isCronRefresh) {
         .hero-cond { font-weight:600; opacity:.92; font-size:.9rem; margin-top:.1rem; }
         .hero-big { text-align:center; position:relative; z-index:1; }
         .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; }
+        .hero-big .n .pfx { font-size:2.4rem; font-weight:800; opacity:.85; margin-right:.05rem; }
         .hero-big small { display:block; font-size:.82rem; font-weight:700; opacity:.85; margin-top:.25rem; letter-spacing:.01em; }
         .hero-foot { display:flex; flex-direction:column; gap:.5rem; position:relative; z-index:1; }
         .hero-chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:.4rem .85rem; font-size:.84rem; font-weight:700; white-space:nowrap; }
@@ -3381,7 +3382,7 @@ if ($isCronRefresh) {
                 <div class="hero-cond">${top.it.cond}</div>
               </div>
             </div>
-            <div class="hero-big"><span class="n">${top.off.upto?'do ':'−'}${top.off.v}</span><small>gr / litr · benzyna i diesel</small></div>
+            <div class="hero-big"><span class="n"><span class="pfx">${top.off.upto?'do':'−'}</span>${top.off.v}</span><small>gr / litr · benzyna i diesel</small></div>
             <div class="hero-foot">
               <span class="hero-chip">💰 ~${save0} zł przy 50 l</span>
               ${dl0!==null?`<span class="hero-chip">⏳ zostało ${dl0} dni</span>`:''}
