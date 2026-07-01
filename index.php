@@ -3650,7 +3650,7 @@ if ($isCronRefresh) {
         .pi-disc { width:100%; box-sizing:border-box; text-align:center; padding:.45rem .7rem; border-radius:12px; background:linear-gradient(160deg, rgba(31,138,112,.12), rgba(31,138,112,.04)); border:1px solid rgba(31,138,112,.20); }
         .promo-item.top .pi-disc { background:linear-gradient(160deg, rgba(244,185,66,.22), rgba(244,185,66,.06)); border-color:rgba(244,185,66,.35); }
         .pi-disc .num { font-size:1.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; color:var(--green-deep); }
-        .pi-disc .num .pfx { font-size:.9rem; font-weight:700; opacity:.55; margin-right:.1rem; }
+        .pi-disc .num .pfx { font-size:1.25rem; font-weight:800; opacity:.9; margin-right:.08rem; }
         :root[data-theme="dark"] .pi-disc .num { color:#8ee0b4; }
         .promo-item.top .pi-disc .num { color:#8a5a00; }
         :root[data-theme="dark"] .promo-item.top .pi-disc .num { color:#f4b942; }
