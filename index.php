@@ -352,20 +352,6 @@ function redirect_after_manual_refresh(string $status): void
     exit;
 }
 
-function send_json_response(array $payload, int $statusCode = 200): void
-{
-    if (PHP_SAPI !== 'cli') {
-        http_response_code($statusCode);
-        header('Content-Type: application/json; charset=UTF-8');
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-    }
-
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    exit;
-}
-
 function load_dashboard_snapshot(): ?array
 {
     $path = dashboard_snapshot_path();
@@ -447,64 +433,6 @@ function http_get(string $url, array $headers = []): ?string
     }
 
     return null;
-}
-
-function http_get_light(string $url, array $headers = []): ?string
-{
-    $headers = array_merge([
-        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language: pl-PL,pl;q=0.9,en;q=0.6',
-        'Cache-Control: no-cache',
-        'Pragma: no-cache',
-        'User-Agent: FuelMonitor/2.3 (+local dashboard; light update check)',
-    ], $headers);
-
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 3,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_TIMEOUT => 4,
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ]);
-
-        $body = curl_exec($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
-
-        if (is_string($body) && $body !== '' && $status >= 200 && $status < 300) {
-            return $body;
-        }
-    }
-
-    if (function_exists('shell_exec')) {
-        $command = curl_shell_binary() . ' -L -s --connect-timeout 2 --max-time 4 '
-            . '-A "FuelMonitor/2.3 (+local dashboard; light update check)" '
-            . escapeshellarg($url);
-
-        $body = shell_exec($command);
-
-        if (is_string($body) && trim($body) !== '') {
-            return $body;
-        }
-    }
-
-    $context = stream_context_create([
-        'http' => [
-            'method' => 'GET',
-            'header' => implode("\r\n", $headers),
-            'timeout' => 4,
-            'ignore_errors' => true,
-        ],
-    ]);
-
-    $body = @file_get_contents($url, false, $context);
-
-    return is_string($body) && trim($body) !== '' ? $body : null;
 }
 
 function station_promotions_source_url(): string
@@ -774,15 +702,6 @@ function text_contains_ci(string $haystack, string $needle): bool
     }
 
     return stripos($haystack, $needle) !== false;
-}
-
-function station_network_initial(string $network): string
-{
-    if (function_exists('mb_substr')) {
-        return mb_substr($network, 0, 1, 'UTF-8');
-    }
-
-    return substr($network, 0, 1);
 }
 
 function station_logo_url(string $network): ?string
