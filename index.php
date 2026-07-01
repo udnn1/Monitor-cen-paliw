@@ -3377,9 +3377,9 @@ if ($isCronRefresh) {
         .hero-net { font-size:1.55rem; font-weight:900; letter-spacing:-.02em; line-height:1.05; margin-top:.15rem; }
         .hero-cond { font-weight:600; opacity:.92; font-size:.9rem; margin-top:.1rem; }
         .hero-big { text-align:center; position:relative; z-index:1; }
-        .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; position:relative; left:12px; }
+        .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; }
+        .hero-big .nu { font-size:1rem; font-weight:800; opacity:.82; margin-left:.25rem; letter-spacing:0; }
         .hero-big small { display:block; font-size:.82rem; font-weight:700; opacity:.85; margin-top:.25rem; letter-spacing:.01em; }
-        .hero-big .afx-ghost { visibility:hidden; }
         .hero-foot { display:flex; flex-direction:column; gap:.5rem; position:relative; z-index:1; }
         .hero-chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:.4rem .85rem; font-size:.84rem; font-weight:700; white-space:nowrap; }
         .spot-side { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; align-content:start; }
@@ -3407,6 +3407,7 @@ if ($isCronRefresh) {
         .promo-item.top .pi-disc { background:linear-gradient(160deg, rgba(244,185,66,.22), rgba(244,185,66,.06)); border-color:rgba(244,185,66,.35); }
         .pi-disc .num { font-size:1.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; color:var(--green-deep); }
         .pi-disc .num .pfx { font-size:1.25rem; font-weight:800; opacity:.9; margin-right:.08rem; }
+        .pi-disc .num .nu { font-size:.72rem; font-weight:800; opacity:.72; margin-left:.18rem; letter-spacing:0; }
         :root[data-theme="dark"] .pi-disc .num { color:#8ee0b4; }
         .promo-item.top .pi-disc .num { color:#8a5a00; }
         :root[data-theme="dark"] .promo-item.top .pi-disc .num { color:#f4b942; }
@@ -3467,7 +3468,6 @@ if ($isCronRefresh) {
             .hero-id{flex-direction:row; align-items:center; text-align:left; gap:.85rem;}
             .hero-big{text-align:left; display:flex; align-items:baseline; gap:.6rem;}
             .hero-big small{margin-top:0;}
-            .hero-big .afx-ghost{display:none;}
             .hero-foot{flex-direction:row; flex-wrap:wrap; justify-content:flex-start; gap:.5rem;}
         }
     </style>
@@ -3687,7 +3687,7 @@ if ($isCronRefresh) {
                 <div class="hero-cond">${top.it.cond}</div>
               </div>
             </div>
-            <div class="hero-big"><span class="n">${top.off.upto?'do −':'−'}${top.off.v}<span class="afx-ghost" aria-hidden="true">${top.off.upto?'do −':'−'}</span></span><small>gr / litr · benzyna i diesel</small></div>
+            <div class="hero-big"><span class="n">−${top.off.g}<span class="nu">gr/l</span></span><small>benzyna i diesel</small></div>
             <div class="hero-foot">
               <span class="hero-chip">💰 ~${save0} zł przy 50 l</span>
               ${dl0!==null?`<span class="hero-chip">⏳ zostało ${dl0} dni</span>`:''}
@@ -3717,13 +3717,13 @@ if ($isCronRefresh) {
                   </div>
                 </div>
                 <div class="pi-rabaty">
-                  <div class="pi-disc"><div class="num"><span class="pfx">−</span>${o.g}</div><div class="unit">gr/l · Pb i ON</div>${o.upto&&o.v>o.g?`<div class="pi-max">do −${o.v} gr/l</div>`:''}</div>
-                  ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do −':'−'}${lpg.v} gr/l</span>`:''}
+                  <div class="pi-disc"><div class="num"><span class="pfx">−</span>${o.g}<span class="nu">gr/l</span></div><div class="unit">Pb i ON</div>${o.upto&&o.v>o.g?`<div class="pi-max">maks. −${o.v} gr/l</div>`:''}</div>
+                  ${lpg?`<span class="pi-lpg">LPG −${lpg.v} gr/l</span>`:''}
                 </div>
               </div>
               <div class="divider"></div>
               <div class="pi-meta">
-                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>do −${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}${it.disc.when?`<span class="twhen">⏱ ${it.disc.when}</span>`:''}</span></div>
+                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>−${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}${it.disc.when?`<span class="twhen">⏱ ${it.disc.when}</span>`:''}</span></div>
                 <div class="pi-cell"><span class="lbl">Ważność</span><span class="val">do ${pDmy(it.toIso)}</span><div class="prog ${soon?'soon':''}"><div style="width:${elapsed}%"></div></div><div class="days ${soon?'soon':''}">${dl!==null&&dl>=0?'zostało '+dl+' dni':'zakończona'}</div></div>
                 <div class="pi-cell"><span class="lbl">Szacowana oszczędność</span><span class="save-lines"><span>40 l <b>~${pFmt(o.g*40/100)} zł</b></span><span>45 l <b>~${pFmt(o.g*45/100)} zł</b></span><span>50 l <b>~${pFmt(o.g*50/100)} zł</b></span></span></div>
               </div>
