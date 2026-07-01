@@ -3699,10 +3699,12 @@ if ($isCronRefresh) {
             .tl-row{grid-template-columns:80px 1fr;} .tl-end{grid-column:2;text-align:left;}
         }
         @media (max-width:640px){
-            .hero{flex-direction:column; align-items:center; text-align:center; gap:1.1rem; padding:1.4rem 1.2rem;}
+            .hero{flex-direction:column; align-items:stretch; text-align:left; gap:1.1rem; padding:1.4rem 1.3rem;}
             .hero::after{display:none;}
-            .hero-id{flex-direction:column; text-align:center; gap:.6rem;}
-            .hero-foot{flex-direction:row; flex-wrap:wrap; justify-content:center;}
+            .hero-id{flex-direction:row; align-items:center; text-align:left; gap:.85rem;}
+            .hero-big{text-align:left; display:flex; align-items:baseline; gap:.6rem;}
+            .hero-big small{margin-top:0;}
+            .hero-foot{flex-direction:row; flex-wrap:wrap; justify-content:flex-start; gap:.5rem;}
         }
     </style>
 </head>
