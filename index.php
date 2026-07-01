@@ -2849,7 +2849,7 @@ $promoTierText = [
     'BP' => ['baseCond' => 'na paliwa, z aplikacją BPme', 'maxCond' => null, 'when' => null],
     'Shell' => ['baseCond' => 'standardowo, bez dodatkowych zakupów', 'maxCond' => 'przy zakupie dowolnego produktu Shell (np. Café, myjnia)', 'when' => null],
     'Circle K' => ['baseCond' => 'na paliwa miles (standardowe)', 'maxCond' => 'na paliwa miles+ (premium)', 'when' => null],
-    'ORLEN' => ['baseCond' => 'z kuponem w aplikacji ORLEN VITAY', 'maxCond' => 'przy zakupach pozapaliwowych min. 5 zł', 'when' => 'tylko w weekendy'],
+    'ORLEN' => ['baseCond' => 'z kuponem w aplikacji ORLEN VITAY', 'maxCond' => 'przy zakupach pozapaliwowych min. 5 zł', 'when' => 'tylko w weekendy (pt.–ndz.)'],
     'MOYA' => ['baseCond' => 'z kuponem w aplikacji Super MOYA', 'maxCond' => 'przy zakupie w sklepie / Caffe MOYA min. 10 zł', 'when' => null],
 ];
 $promoData = [];
@@ -3424,7 +3424,7 @@ if ($isCronRefresh) {
         .val-tiers { display:flex; flex-direction:column; gap:.28rem; }
         .val-tiers .tline { font-size:.82rem; font-weight:700; color:var(--muted); line-height:1.4; }
         .val-tiers .tline b { color:var(--ink); font-weight:900; margin-right:.15rem; }
-        .pi-when { display:inline-flex; align-items:center; gap:.3rem; margin-left:.5rem; vertical-align:middle; background:linear-gradient(135deg,#e3131b,#b00d14); color:#fff; font-weight:900; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; padding:.3rem .6rem; border-radius:999px; box-shadow:0 4px 12px rgba(227,19,27,.4); }
+        .pi-ribbon { display:flex; align-items:center; justify-content:center; gap:.4rem; background:linear-gradient(135deg,#e3131b,#b00d14); color:#fff; font-weight:900; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; padding:.42rem .8rem; text-align:center; }
         .prog { position:relative; height:6px; margin-top:.45rem; background:rgba(120,130,140,.16); border-radius:999px; overflow:hidden; }
         .prog > div { position:absolute; inset:0 auto 0 0; border-radius:999px; background:linear-gradient(90deg,var(--green),#35b592); }
         .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
@@ -3707,11 +3707,12 @@ if ($isCronRefresh) {
             if(dl!==null){ const horizon=90; elapsed=Math.max(4,Math.min(100,(horizon-dl)/horizon*100)); }
             return `
             <article class="promo-item ${it.top?'top':''}">
+              ${it.disc.when?`<div class="pi-ribbon">⏱ ${it.disc.when}</div>`:''}
               <div class="pi-head">
                 <div class="pi-id">
                   ${it.logo?`<span class="pi-logo"><img src="${it.logo}" alt=""></span>`:''}
                   <div>
-                    <div class="pi-name">${it.net}${it.top?'<span class="pi-badge">★ TOP okazja</span>':''}${it.disc.when?`<span class="pi-when">⏱ ${it.disc.when}</span>`:''}</div>
+                    <div class="pi-name">${it.net}${it.top?'<span class="pi-badge">★ TOP okazja</span>':''}</div>
                     <div class="pi-sub"><span class="pi-dot"></span>Aktywna promocja</div>
                   </div>
                 </div>
