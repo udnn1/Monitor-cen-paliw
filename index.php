@@ -3684,9 +3684,8 @@ if ($isCronRefresh) {
         body.innerHTML = rows.map((r) => {
             const it=r.it, o=pStd(it)||r.off, lpg=pLpg(it);
             const dl=pDays(it.toIso); const soon=dl!==null&&dl<=21;
-            const from=pParse(it.fromIso), to=pParse(it.toIso);
             let elapsed=50;
-            if(from&&to&&to>from){ elapsed=Math.max(2,Math.min(100,(pToday-from)/(to-from)*100)); }
+            if(dl!==null){ const horizon=90; elapsed=Math.max(4,Math.min(100,(horizon-dl)/horizon*100)); }
             return `
             <article class="promo-item ${it.top?'top':''}">
               <div class="pi-head">
