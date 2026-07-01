@@ -3528,7 +3528,7 @@ if ($isCronRefresh) {
         .hero-logo img { width:76%; height:76%; object-fit:contain; }
         .hero-kick { font-size:.74rem; text-transform:uppercase; letter-spacing:.12em; font-weight:800; opacity:.9; }
         .hero-net { font-size:1.55rem; font-weight:900; letter-spacing:-.02em; line-height:1.05; margin-top:.15rem; }
-        .hero-cond { font-weight:600; opacity:.92; font-size:.9rem; margin-top:.1rem; }
+        .hero-cond { font-weight:600; opacity:.92; font-size:.9rem; margin-top:.1rem; max-width:15rem; }
         .hero-big { text-align:center; position:relative; z-index:1; }
         .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; }
         .hero-big .nu { font-size:1rem; font-weight:800; opacity:.82; margin-left:.25rem; letter-spacing:0; }
