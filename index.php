@@ -3533,7 +3533,7 @@ if ($isCronRefresh) {
         .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; }
         .hero-big .nu { font-size:1rem; font-weight:800; opacity:.82; margin-left:.25rem; letter-spacing:0; }
         .hero-big small { display:block; font-size:.82rem; font-weight:700; opacity:.85; margin-top:.25rem; letter-spacing:.01em; }
-        .hero-foot { display:flex; flex-direction:column; align-items:flex-start; gap:.5rem; position:relative; z-index:1; }
+        .hero-foot { display:flex; flex-direction:row; flex-wrap:wrap; align-items:flex-start; gap:.5rem; position:relative; z-index:1; }
         .hero-chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:.4rem .85rem; font-size:.84rem; font-weight:700; white-space:normal; max-width:15rem; line-height:1.3; }
         .spot-side { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; align-content:start; }
         .mini { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; box-shadow:0 8px 20px var(--shadow); display:flex; flex-direction:column; gap:.2rem; }
