@@ -4016,7 +4016,7 @@ if ($isCronRefresh) {
                 </div>
                 <div class="pi-rabaty">
                   <div class="pi-disc"><div class="num">${o.upto?'do ':'−'}${o.v}</div><div class="unit">gr/l · benzyna i diesel</div></div>
-                  ${lpg?`<span class="pi-lpg">🔵 LPG ${lpg.upto?'do ':'−'}${lpg.v} gr/l</span>`:''}
+                  ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do ':'−'}${lpg.v} gr/l</span>`:''}
                 </div>
               </div>
               <div class="divider"></div>
