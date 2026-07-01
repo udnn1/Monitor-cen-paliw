@@ -3008,6 +3008,9 @@ if ($isCronRefresh) {
         .theme-switch-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
         .theme-switch-label { font-size: 0.88rem; font-weight: 800; letter-spacing: -0.01em; }
         .theme-switch-hint { margin-top: 0.15rem; font-size: 0.74rem; color: var(--muted); }
+        .theme-fab { position: fixed; top: 0.85rem; right: 1rem; z-index: 1000; }
+        .theme-fab .theme-switch { min-width: 0; padding: 0.4rem; gap: 0; }
+        .theme-fab .theme-switch-text { display: none; }
 
         .refresh-button { justify-content: center; padding: 0.78rem 1rem; text-decoration: none; font-weight: 800; letter-spacing: -0.01em; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12); }
         .refresh-button:hover { color: #fff; }
@@ -3695,9 +3698,27 @@ if ($isCronRefresh) {
             .tl-head{display:none;}
             .tl-row{grid-template-columns:80px 1fr;} .tl-end{grid-column:2;text-align:left;}
         }
+        @media (max-width:640px){
+            .hero{flex-direction:column; align-items:center; text-align:center; gap:1.1rem; padding:1.4rem 1.2rem;}
+            .hero::after{display:none;}
+            .hero-id{flex-direction:column; text-align:center; gap:.6rem;}
+            .hero-foot{flex-direction:row; flex-wrap:wrap; justify-content:center;}
+        }
     </style>
 </head>
 <body>
+<div class="theme-fab">
+    <label class="theme-switch" for="themeToggle">
+        <input type="checkbox" id="themeToggle" aria-label="Przełącz ciemne tło">
+        <span class="theme-switch-track" aria-hidden="true">
+            <span class="theme-switch-thumb" id="themeToggleIcon">☀</span>
+        </span>
+        <span class="theme-switch-text">
+            <span class="theme-switch-label" id="themeToggleLabel">Ciemne tło</span>
+            <span class="theme-switch-hint" id="themeToggleHint">Tryb nocny panelu</span>
+        </span>
+    </label>
+</div>
 <div class="shell">
     <main class="container-xxl page-main px-3 px-lg-4 py-4 py-lg-5 position-relative">
         <section class="card-surface hero-panel p-4 p-lg-5 mb-4">
@@ -3753,21 +3774,6 @@ if ($isCronRefresh) {
                 <?= e($manualRefreshMessage) ?>
             </section>
         <?php endif; ?>
-
-        <div class="dashboard-tabs-row">
-            <div class="theme-toggle dashboard-theme-toggle">
-                <label class="theme-switch" for="themeToggle">
-                    <input type="checkbox" id="themeToggle" aria-label="Przełącz ciemne tło">
-                    <span class="theme-switch-track" aria-hidden="true">
-                        <span class="theme-switch-thumb" id="themeToggleIcon">☀</span>
-                    </span>
-                    <span class="theme-switch-text">
-                        <span class="theme-switch-label" id="themeToggleLabel">Ciemne tło</span>
-                        <span class="theme-switch-hint" id="themeToggleHint">Tryb nocny panelu</span>
-                    </span>
-                </label>
-            </div>
-        </div>
 
         <div class="promotions-panel">
             <?php if (!empty($stationPromotions['warning'])): ?>
