@@ -17,7 +17,7 @@ napędowy. Prezentacja: pojedynczy panel z siatką promocji, oznaczeniem
 
 > Wcześniejsza część projektu — monitor oficjalnych limitów cen paliw
 > publikowanych przez rząd — została zarchiwizowana w katalogu
-> [`monitor-limitow-cen-paliw/`](monitor-limitow-cen-paliw/) po tym, jak
+> [`monitor-limitow-cen-paliw/`](monitor-limitow-cen-paliw) po tym, jak
 > resort przestał publikować te dane (1 lipca 2026).
 
 ## Jak to działa
