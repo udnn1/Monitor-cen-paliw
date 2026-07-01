@@ -2834,7 +2834,7 @@ if (isset($stationPromotions['items']) && is_array($stationPromotions['items']))
 $promoFuelMap = [
     'BP' => ['benzyna' => [35, false], 'diesel' => [35, false], 'lpg' => [15, false]],
     'Circle K' => ['benzyna' => [35, true, 30], 'diesel' => [35, true, 30], 'lpg' => [10, false]],
-    'Shell' => ['benzyna' => [35, false], 'diesel' => [35, false], 'lpg' => [15, false]],
+    'Shell' => ['benzyna' => [35, true, 20], 'diesel' => [35, true, 20], 'lpg' => [15, false]],
     'ORLEN' => ['benzyna' => [35, true, 20], 'diesel' => [35, true, 20]],
     'MOYA' => ['benzyna' => [40, true, 30], 'diesel' => [40, true, 30]],
 ];
@@ -2844,6 +2844,13 @@ $promoConditions = [
     'ORLEN' => 'min. 5 zł zakupów',
     'Circle K' => 'na miles',
     'MOYA' => 'aplikacja Super MOYA',
+];
+$promoTierText = [
+    'BP' => ['baseCond' => 'na paliwa, z aplikacją BPme', 'maxCond' => null, 'when' => null],
+    'Shell' => ['baseCond' => 'standardowo, bez dodatkowych zakupów', 'maxCond' => 'przy zakupie dowolnego produktu Shell (np. Café, myjnia)', 'when' => null],
+    'Circle K' => ['baseCond' => 'na paliwa miles (standardowe)', 'maxCond' => 'na paliwa miles+ (premium)', 'when' => null],
+    'ORLEN' => ['baseCond' => 'z kuponem w aplikacji ORLEN VITAY', 'maxCond' => 'przy zakupach pozapaliwowych min. 5 zł', 'when' => 'tylko w weekendy'],
+    'MOYA' => ['baseCond' => 'z kuponem w aplikacji Super MOYA', 'maxCond' => 'przy zakupie w sklepie / Caffe MOYA min. 10 zł', 'when' => null],
 ];
 $promoData = [];
 foreach (($stationPromotions['items'] ?? []) as $promoItem) {
@@ -2866,10 +2873,17 @@ foreach (($stationPromotions['items'] ?? []) as $promoItem) {
         ];
     }
 
+    $promoTier = $promoTierText[$promoNet] ?? ['baseCond' => $promoConditions[$promoNet] ?? '', 'maxCond' => null, 'when' => null];
+
     $promoData[] = [
         'net' => $promoNet,
         'logo' => station_logo_url($promoNet) ?? '',
         'cond' => $promoConditions[$promoNet] ?? '',
+        'disc' => [
+            'baseCond' => (string) ($promoTier['baseCond'] ?? ''),
+            'maxCond' => $promoTier['maxCond'] ?? null,
+            'when' => $promoTier['when'] ?? null,
+        ],
         'top' => !empty($promoItem['isTopPromotion']),
         'fromIso' => $promoItem['fromIso'] ?? null,
         'toIso' => $promoItem['toIso'] ?? null,
@@ -3405,6 +3419,12 @@ if ($isCronRefresh) {
         .pi-cell + .pi-cell { border-top:1px solid var(--line); padding-top:.7rem; }
         .pi-cell .lbl { font-size:.62rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:800; display:block; margin-bottom:.3rem; }
         .pi-cell .val { font-weight:800; font-size:.92rem; }
+        .pi-max { margin-top:.2rem; font-size:.68rem; font-weight:800; color:var(--muted); letter-spacing:.01em; }
+        .val-tiers { display:flex; flex-direction:column; gap:.28rem; }
+        .val-tiers .tline { font-size:.82rem; font-weight:700; color:var(--muted); line-height:1.4; }
+        .val-tiers .tline b { color:var(--ink); font-weight:900; margin-right:.15rem; }
+        .val-tiers .twhen { display:inline-flex; align-items:center; align-self:flex-start; gap:.25rem; margin-top:.1rem; font-size:.72rem; font-weight:800; color:#a35a00; background:rgba(244,185,66,.16); border:1px solid rgba(244,185,66,.4); border-radius:999px; padding:.12rem .5rem; }
+        :root[data-theme="dark"] .val-tiers .twhen { color:#f4b942; }
         .prog { position:relative; height:6px; margin-top:.45rem; background:rgba(120,130,140,.16); border-radius:999px; overflow:hidden; }
         .prog > div { position:absolute; inset:0 auto 0 0; border-radius:999px; background:linear-gradient(90deg,var(--green),#35b592); }
         .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
@@ -3697,13 +3717,13 @@ if ($isCronRefresh) {
                   </div>
                 </div>
                 <div class="pi-rabaty">
-                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do −':'−'}</span>${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
+                  <div class="pi-disc"><div class="num"><span class="pfx">−</span>${o.g}</div><div class="unit">gr/l · Pb i ON</div>${o.upto&&o.v>o.g?`<div class="pi-max">do −${o.v} gr/l</div>`:''}</div>
                   ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do −':'−'}${lpg.v} gr/l</span>`:''}
                 </div>
               </div>
               <div class="divider"></div>
               <div class="pi-meta">
-                <div class="pi-cell"><span class="lbl">Warunek</span><span class="val">${it.cond}</span></div>
+                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>do −${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}${it.disc.when?`<span class="twhen">⏱ ${it.disc.when}</span>`:''}</span></div>
                 <div class="pi-cell"><span class="lbl">Ważność</span><span class="val">do ${pDmy(it.toIso)}</span><div class="prog ${soon?'soon':''}"><div style="width:${elapsed}%"></div></div><div class="days ${soon?'soon':''}">${dl!==null&&dl>=0?'zostało '+dl+' dni':'zakończona'}</div></div>
                 <div class="pi-cell"><span class="lbl">Szacowana oszczędność</span><span class="save-lines"><span>40 l <b>~${pFmt(o.g*40/100)} zł</b></span><span>45 l <b>~${pFmt(o.g*45/100)} zł</b></span><span>50 l <b>~${pFmt(o.g*50/100)} zł</b></span></span></div>
               </div>
