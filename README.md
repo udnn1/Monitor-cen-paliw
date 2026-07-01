@@ -55,3 +55,7 @@ napędowy. Prezentacja: pojedynczy panel z siatką promocji, oznaczeniem
 - Circle K — https://www.circlek.pl/kupony
 - Shell — https://www.shell.pl/stacje-shell/oferty-i-promocje.html
 - ORLEN VITAY — https://vitay.pl/rabaty
+
+## Rozwój
+
+Claude nie pisze kodu w tym projekcie — jego rola ogranicza się wyłącznie do code review.
