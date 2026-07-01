@@ -58,5 +58,4 @@ napędowy. Prezentacja: pojedynczy panel z siatką promocji, oznaczeniem
 
 ## Rozwój
 
-Kod projektu powstaje samodzielnie. Claude pełni tu rolę wyłącznie recenzenta —
-wspiera proces przez code review, nie uczestnicząc w pisaniu kodu.
+AI odpowiada wyłącznie za code-review.
