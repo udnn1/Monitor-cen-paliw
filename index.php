@@ -3698,7 +3698,7 @@ if ($isCronRefresh) {
                   </div>
                 </div>
                 <div class="pi-rabaty">
-                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do':'−'}</span>${o.upto?' −':''}${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
+                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do −':'−'}</span>${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
                   ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do −':'−'}${lpg.v} gr/l</span>`:''}
                 </div>
               </div>
