@@ -3082,6 +3082,7 @@ if ($isCronRefresh) {
         .hero-big { text-align:center; position:relative; z-index:1; }
         .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; }
         .hero-big small { display:block; font-size:.82rem; font-weight:700; opacity:.85; margin-top:.25rem; letter-spacing:.01em; }
+        .hero-big .afx-ghost { visibility:hidden; }
         .hero-foot { display:flex; flex-direction:column; gap:.5rem; position:relative; z-index:1; }
         .hero-chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:.4rem .85rem; font-size:.84rem; font-weight:700; white-space:nowrap; }
         .spot-side { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; align-content:start; }
@@ -3163,6 +3164,7 @@ if ($isCronRefresh) {
             .hero-id{flex-direction:row; align-items:center; text-align:left; gap:.85rem;}
             .hero-big{text-align:left; display:flex; align-items:baseline; gap:.6rem;}
             .hero-big small{margin-top:0;}
+            .hero-big .afx-ghost{display:none;}
             .hero-foot{flex-direction:row; flex-wrap:wrap; justify-content:flex-start; gap:.5rem;}
         }
     </style>
@@ -3381,7 +3383,7 @@ if ($isCronRefresh) {
                 <div class="hero-cond">${top.it.cond}</div>
               </div>
             </div>
-            <div class="hero-big"><span class="n">${top.off.upto?'do ':'−'}${top.off.v}</span><small>gr / litr · benzyna i diesel</small></div>
+            <div class="hero-big"><span class="n">${top.off.upto?'do ':'−'}${top.off.v}<span class="afx-ghost" aria-hidden="true">${top.off.upto?' do':'−'}</span></span><small>gr / litr · benzyna i diesel</small></div>
             <div class="hero-foot">
               <span class="hero-chip">💰 ~${save0} zł przy 50 l</span>
               ${dl0!==null?`<span class="hero-chip">⏳ zostało ${dl0} dni</span>`:''}
@@ -3412,7 +3414,7 @@ if ($isCronRefresh) {
                   </div>
                 </div>
                 <div class="pi-rabaty">
-                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do':'−'}</span>${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
+                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do':'−'}</span>${o.upto?' ':''}${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
                   ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do ':'−'}${lpg.v} gr/l</span>`:''}
                 </div>
               </div>
