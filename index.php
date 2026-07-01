@@ -1474,6 +1474,12 @@ function fetch_bp_official_fuel_promotions(): array
 
 function http_get_orlen_vitay(string $url): ?string
 {
+    $body = http_get($url);
+
+    if (is_string($body) && trim($body) !== '') {
+        return $body;
+    }
+
     return http_get_browser_page($url, 'https://www.orlen.pl/');
 }
 
@@ -1569,8 +1575,8 @@ function fetch_orlen_vitay_fuel_promotions(): array
         return [
             'url' => orlen_press_root_url(),
             'items' => [],
-            'warnings' => ['Nie udalo sie ustalic adresu komunikatu o promocji paliwowej ORLEN.'],
-            'warning' => 'Nie udalo sie ustalic adresu komunikatu o promocji paliwowej ORLEN.',
+            'warnings' => ['Nie udało się ustalić adresu komunikatu o promocji paliwowej ORLEN.'],
+            'warning' => 'Nie udało się ustalić adresu komunikatu o promocji paliwowej ORLEN.',
             'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
             'sourceMode' => 'orlen_press_no_url',
         ];
@@ -1582,8 +1588,8 @@ function fetch_orlen_vitay_fuel_promotions(): array
         return [
             'url' => $sourceUrl,
             'items' => [],
-            'warnings' => ['Nie udalo sie pobrac komunikatu o promocji paliwowej ORLEN.'],
-            'warning' => 'Nie udalo sie pobrac komunikatu o promocji paliwowej ORLEN.',
+            'warnings' => ['Nie udało się pobrać komunikatu o promocji paliwowej ORLEN.'],
+            'warning' => 'Nie udało się pobrać komunikatu o promocji paliwowej ORLEN.',
             'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
             'sourceMode' => 'orlen_press_failed',
         ];
@@ -2310,12 +2316,32 @@ function fetch_station_promotions(array $previousItems = []): array
     station_promotions_sort($items);
     mark_top_station_promotions($items);
 
-    $warnings = array_values(array_unique(array_merge(
-        $bpOfficialPromotions['warnings'] ?? [],
-        $orlenVitayPromotions['warnings'] ?? [],
-        $shellOfficialPromotions['warnings'] ?? [],
-        $circlekPromotions['warnings'] ?? []
-    )));
+    $presentNetworks = [];
+    foreach ($items as $presentItem) {
+        if (is_array($presentItem) && !empty($presentItem['network'])) {
+            $presentNetworks[(string) $presentItem['network']] = true;
+        }
+    }
+
+    $warningSources = [
+        'BP' => $bpOfficialPromotions['warnings'] ?? [],
+        'ORLEN' => $orlenVitayPromotions['warnings'] ?? [],
+        'Shell' => $shellOfficialPromotions['warnings'] ?? [],
+        'Circle K' => $circlekPromotions['warnings'] ?? [],
+    ];
+
+    $warnings = [];
+    foreach ($warningSources as $warningNetwork => $networkWarnings) {
+        if (isset($presentNetworks[$warningNetwork]) || !is_array($networkWarnings)) {
+            continue;
+        }
+
+        foreach ($networkWarnings as $networkWarning) {
+            $warnings[] = $networkWarning;
+        }
+    }
+
+    $warnings = array_values(array_unique($warnings));
 
     return [
         'url' => station_promotions_source_url(),
