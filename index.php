@@ -3631,6 +3631,7 @@ if ($isCronRefresh) {
         .mini { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; box-shadow:0 8px 20px var(--shadow); display:flex; flex-direction:column; gap:.2rem; }
         .mini-label { font-size:.72rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
         .mini-value { font-size:1.4rem; font-weight:900; letter-spacing:-.02em; }
+        .mini-sub { font-size:.78rem; color:var(--muted); font-weight:700; }
 
         .promo-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 350px), 1fr)); gap:1.25rem; align-items:start; }
         .promo-item { position:relative; border-radius:20px; overflow:hidden; background:var(--surface); border:1px solid var(--line); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(18,52,59,.06), 0 18px 40px -18px var(--shadow); transition:transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s, border-color .2s; }
@@ -3972,8 +3973,8 @@ if ($isCronRefresh) {
         const save0 = pFmt(top.off.g*50/100);
         const active = rows.length;
         const maxV = Math.max(...rows.map(r=>r.off.v));
-        const ends = rows.map(r=>pDays(r.it.toIso)).filter(x=>x!==null&&x>=0);
-        const nearest = ends.length ? Math.min(...ends) : null;
+        let nearest = null, nearestNet = '';
+        rows.forEach(r=>{ const d=pDays(r.it.toIso); if(d!==null&&d>=0&&(nearest===null||d<nearest)){ nearest=d; nearestNet=r.it.net; } });
         const uncond = rows.filter(r=>!r.off.upto && r.it.cond==='bezwarunkowo').sort((a,b)=>b.off.g-a.off.g)[0];
         spot.innerHTML = `
           <div class="hero">
@@ -3995,7 +3996,7 @@ if ($isCronRefresh) {
           <div class="spot-side">
             <div class="mini"><span class="mini-label">Aktywne promocje</span><span class="mini-value">${active}</span></div>
             <div class="mini"><span class="mini-label">Najwyższy rabat</span><span class="mini-value">−${maxV} gr/l</span></div>
-            <div class="mini"><span class="mini-label">Najbliższy koniec</span><span class="mini-value">${nearest!==null?nearest+' dni':'—'}</span></div>
+            <div class="mini"><span class="mini-label">Najbliższy koniec</span><span class="mini-value">${nearest!==null?nearest+' dni':'—'}</span>${nearest!==null&&nearestNet?`<span class="mini-sub">${nearestNet}</span>`:''}</div>
             <div class="mini"><span class="mini-label">Najlepsza bezwarunkowa</span><span class="mini-value">${uncond?uncond.it.net:'—'}</span></div>
           </div>`;
 
