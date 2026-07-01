@@ -3424,8 +3424,7 @@ if ($isCronRefresh) {
         .val-tiers { display:flex; flex-direction:column; gap:.28rem; }
         .val-tiers .tline { font-size:.82rem; font-weight:700; color:var(--muted); line-height:1.4; }
         .val-tiers .tline b { color:var(--ink); font-weight:900; margin-right:.15rem; }
-        .val-tiers .twhen { display:inline-flex; align-items:center; align-self:flex-start; gap:.25rem; margin-top:.1rem; font-size:.72rem; font-weight:800; color:#a35a00; background:rgba(244,185,66,.16); border:1px solid rgba(244,185,66,.4); border-radius:999px; padding:.12rem .5rem; }
-        :root[data-theme="dark"] .val-tiers .twhen { color:#f4b942; }
+        .pi-when { display:inline-flex; align-items:center; gap:.3rem; margin-left:.5rem; vertical-align:middle; background:linear-gradient(135deg,#e3131b,#b00d14); color:#fff; font-weight:900; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; padding:.3rem .6rem; border-radius:999px; box-shadow:0 4px 12px rgba(227,19,27,.4); }
         .prog { position:relative; height:6px; margin-top:.45rem; background:rgba(120,130,140,.16); border-radius:999px; overflow:hidden; }
         .prog > div { position:absolute; inset:0 auto 0 0; border-radius:999px; background:linear-gradient(90deg,var(--green),#35b592); }
         .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
@@ -3712,7 +3711,7 @@ if ($isCronRefresh) {
                 <div class="pi-id">
                   ${it.logo?`<span class="pi-logo"><img src="${it.logo}" alt=""></span>`:''}
                   <div>
-                    <div class="pi-name">${it.net}${it.top?'<span class="pi-badge">★ TOP okazja</span>':''}</div>
+                    <div class="pi-name">${it.net}${it.top?'<span class="pi-badge">★ TOP okazja</span>':''}${it.disc.when?`<span class="pi-when">⏱ ${it.disc.when}</span>`:''}</div>
                     <div class="pi-sub"><span class="pi-dot"></span>Aktywna promocja</div>
                   </div>
                 </div>
@@ -3723,7 +3722,7 @@ if ($isCronRefresh) {
               </div>
               <div class="divider"></div>
               <div class="pi-meta">
-                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>−${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}${it.disc.when?`<span class="twhen">⏱ ${it.disc.when}</span>`:''}</span></div>
+                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>−${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}</span></div>
                 <div class="pi-cell"><span class="lbl">Ważność</span><span class="val">do ${pDmy(it.toIso)}</span><div class="prog ${soon?'soon':''}"><div style="width:${elapsed}%"></div></div><div class="days ${soon?'soon':''}">${dl!==null&&dl>=0?'zostało '+dl+' dni':'zakończona'}</div></div>
                 <div class="pi-cell"><span class="lbl">Szacowana oszczędność</span><span class="save-lines"><span>40 l <b>~${pFmt(o.g*40/100)} zł</b></span><span>45 l <b>~${pFmt(o.g*45/100)} zł</b></span><span>50 l <b>~${pFmt(o.g*50/100)} zł</b></span></span></div>
               </div>
