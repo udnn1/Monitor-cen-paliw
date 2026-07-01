@@ -3843,7 +3843,6 @@ if ($isCronRefresh) {
             <div class="hero-foot">
               <span class="hero-chip">💰 ~${save0} zł przy 50 l</span>
               ${dl0!==null?`<span class="hero-chip">⏳ zostało ${dl0} dni</span>`:''}
-              <span class="hero-chip">✔ ${top.it.cond}</span>
             </div>
           </div>
           <div class="spot-side">
