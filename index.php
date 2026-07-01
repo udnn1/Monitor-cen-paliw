@@ -3080,7 +3080,7 @@ if ($isCronRefresh) {
         .hero-net { font-size:1.55rem; font-weight:900; letter-spacing:-.02em; line-height:1.05; margin-top:.15rem; }
         .hero-cond { font-weight:600; opacity:.92; font-size:.9rem; margin-top:.1rem; }
         .hero-big { text-align:center; position:relative; z-index:1; }
-        .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; position:relative; left:3px; }
+        .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; position:relative; left:6px; }
         .hero-big small { display:block; font-size:.82rem; font-weight:700; opacity:.85; margin-top:.25rem; letter-spacing:.01em; }
         .hero-big .afx-ghost { visibility:hidden; }
         .hero-foot { display:flex; flex-direction:column; gap:.5rem; position:relative; z-index:1; }
