@@ -632,6 +632,43 @@ function orlen_press_promotion_end_date(string $text): ?DateTimeImmutable
     return orlen_vitay_promotion_end_date($text);
 }
 
+function orlen_press_promotion_start_date(string $text): ?DateTimeImmutable
+{
+    $months = [
+        'stycznia' => 1, 'lutego' => 2, 'marca' => 3, 'kwietnia' => 4, 'maja' => 5, 'czerwca' => 6,
+        'lipca' => 7, 'sierpnia' => 8, 'września' => 9, 'wrzesnia' => 9, 'października' => 10,
+        'pazdziernika' => 10, 'listopada' => 11, 'grudnia' => 12,
+    ];
+    $monthPattern = 'stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|wrzesnia|października|pazdziernika|listopada|grudnia';
+
+    if (preg_match('/(\d{1,2})\s*[-–—]\s*\d{1,2}\s+(' . $monthPattern . ')/iu', $text, $match) !== 1
+        && preg_match('/\bod\s+(\d{1,2})\s+(' . $monthPattern . ')/iu', $text, $match) !== 1) {
+        return null;
+    }
+
+    $monthName = function_exists('mb_strtolower') ? mb_strtolower($match[2], 'UTF-8') : strtolower($match[2]);
+    $month = $months[$monthName] ?? null;
+    $day = (int) $match[1];
+
+    if ($month === null || !checkdate($month, $day, (int) (new DateTimeImmutable('today'))->format('Y'))) {
+        return null;
+    }
+
+    $today = new DateTimeImmutable('today');
+    $year = (int) $today->format('Y');
+    $candidate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+
+    if ($candidate > $today->modify('+31 days')) {
+        $year -= 1;
+
+        if (checkdate($month, $day, $year)) {
+            $candidate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+        }
+    }
+
+    return $candidate;
+}
+
 function bp_official_absolute_url(string $url): string
 {
     $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
@@ -1293,6 +1330,49 @@ function bp_official_date_range_from_text(string $text): array
     ];
 }
 
+function bp_official_regulamin_date_range(string $html): array
+{
+    $result = ['fromIso' => null, 'toIso' => null];
+
+    if (preg_match_all('/href="([^"]*regulamin[^"]*\.pdf)"/i', $html, $hrefs) < 1) {
+        return $result;
+    }
+
+    $dates = [];
+
+    foreach ($hrefs[1] as $href) {
+        $decoded = rawurldecode($href);
+
+        if (stripos($decoded, 'taniej') === false && stripos($decoded, 'paliw') === false) {
+            continue;
+        }
+
+        if (preg_match_all('/(\d{2})[_.](\d{2})[_.](\d{4})/', $decoded, $found, PREG_SET_ORDER) < 1) {
+            continue;
+        }
+
+        foreach ($found as $d) {
+            $day = (int) $d[1];
+            $month = (int) $d[2];
+            $year = (int) $d[3];
+
+            if (checkdate($month, $day, $year)) {
+                $dates[] = sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
+        }
+    }
+
+    if ($dates === []) {
+        return $result;
+    }
+
+    sort($dates);
+    $result['fromIso'] = $dates[0];
+    $result['toIso'] = end($dates);
+
+    return $result;
+}
+
 function build_bp_official_fuel_promotion(string $title, string $url, ?string $detailHtml): array
 {
     $description = is_string($detailHtml) && trim($detailHtml) !== ''
@@ -1300,6 +1380,26 @@ function build_bp_official_fuel_promotion(string $title, string $url, ?string $d
         : '';
 
     $dateRange = bp_official_date_range_from_text($title . ' ' . $description);
+
+    if (is_string($detailHtml) && trim($detailHtml) !== '') {
+        $reg = bp_official_regulamin_date_range($detailHtml);
+
+        if ($reg['fromIso'] !== null) {
+            $fromObj = new DateTimeImmutable($reg['fromIso']);
+            $toObj = $reg['toIso'] !== null
+                ? new DateTimeImmutable($reg['toIso'])
+                : (($dateRange['toIso'] ?? null) !== null ? new DateTimeImmutable($dateRange['toIso']) : null);
+
+            $dateRange['fromIso'] = $fromObj->format('Y-m-d');
+            $dateRange['fromLabel'] = $fromObj->format('d.m.Y');
+
+            if ($toObj instanceof DateTimeImmutable) {
+                $dateRange['toIso'] = $toObj->format('Y-m-d');
+                $dateRange['toLabel'] = $toObj->format('d.m.Y');
+                $dateRange['rangeLabel'] = $fromObj->format('d.m.Y') . ' - ' . $toObj->format('d.m.Y');
+            }
+        }
+    }
 
     if ($description !== '' && normalized_station_line_length($description) > 260 && function_exists('mb_substr')) {
         $description = rtrim(mb_substr($description, 0, 257, 'UTF-8')) . '...';
@@ -1632,12 +1732,16 @@ function fetch_orlen_vitay_fuel_promotions(): array
     $baseGr = $grValues[0] ?? 20;
     $maxGr = $grValues !== [] ? (int) max($grValues) : 35;
 
+    $from = orlen_press_promotion_start_date($text);
+
     $dateRange = [
-        'fromLabel' => null,
+        'fromLabel' => $from?->format('d.m.Y'),
         'toLabel' => $to?->format('d.m.Y'),
-        'fromIso' => (new DateTimeImmutable('today'))->format('Y-m-d'),
+        'fromIso' => $from instanceof DateTimeImmutable ? $from->format('Y-m-d') : (new DateTimeImmutable('today'))->format('Y-m-d'),
         'toIso' => $to?->format('Y-m-d'),
-        'rangeLabel' => $to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null,
+        'rangeLabel' => ($from instanceof DateTimeImmutable && $to instanceof DateTimeImmutable)
+            ? $from->format('d.m.Y') . ' - ' . $to->format('d.m.Y')
+            : ($to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null),
     ];
 
     $description = sprintf(
