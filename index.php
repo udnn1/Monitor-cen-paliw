@@ -711,6 +711,7 @@ function station_logo_url(string $network): ?string
         'BP' => 'media/logos/bp.png',
         'Shell' => 'media/logos/shell.png',
         'MOYA' => 'media/logos/moya.png',
+        'MOL' => 'media/logos/mol.png',
         'Circle K' => 'media/logos/circlek.svg',
         default => null,
     };
@@ -2587,6 +2588,193 @@ function carry_over_station_promotions(array $previousItems, array $freshNetwork
     return $carried;
 }
 
+function mol_promotions_source_url(): string
+{
+    return 'https://molpolska.pl/pl/kierowcy/aktualne-promocje';
+}
+
+function mol_scrape_promotions(): array
+{
+    $script = __DIR__ . '/mol_scrape.py';
+
+    if (!is_file($script) || !function_exists('shell_exec')) {
+        return [];
+    }
+
+    $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
+        . ' timeout 90 python3 ' . escapeshellarg($script) . ' 2>/dev/null';
+    $out = shell_exec($cmd);
+
+    if (!is_string($out) || trim($out) === '') {
+        return [];
+    }
+
+    $data = json_decode($out, true);
+
+    return is_array($data) ? $data : [];
+}
+
+function mol_promo_gr_values(string $text): array
+{
+    $lpg = null;
+    $nonLpg = [];
+
+    foreach (preg_split('/[.,;]/u', $text) ?: [$text] as $clause) {
+        $isLpg = stripos($clause, 'lpg') !== false || stripos($clause, 'autogas') !== false;
+
+        if (preg_match_all('/(\d{1,3})\s*gr\s*\/\s*l/iu', $clause, $m) > 0) {
+            foreach ($m[1] as $rawVal) {
+                $val = (int) $rawVal;
+
+                if ($isLpg) {
+                    if ($lpg === null) {
+                        $lpg = $val;
+                    }
+                } else {
+                    $nonLpg[] = $val;
+                }
+            }
+        }
+    }
+
+    return ['lpg' => $lpg, 'max' => $nonLpg !== [] ? (int) max($nonLpg) : 0];
+}
+
+function fetch_mol_fuel_promotions(): array
+{
+    $fetchedAt = new DateTimeImmutable();
+    $sourceUrl = mol_promotions_source_url();
+    $promos = mol_scrape_promotions();
+
+    if ($promos === []) {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => ['Nie udało się pobrać promocji paliwowych MOL.'],
+            'warning' => 'Nie udało się pobrać promocji paliwowych MOL.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'mol_failed',
+        ];
+    }
+
+    $fuel = [];
+    foreach ($promos as $promo) {
+        if (!is_array($promo)) {
+            continue;
+        }
+
+        $text = (string) ($promo['text'] ?? '');
+
+        if (preg_match('/\d{1,3}\s*gr\s*\/\s*l/iu', $text) !== 1) {
+            continue;
+        }
+
+        if (preg_match('/paliw|benzyn|diesel|olej|lpg|evo|tankow/iu', $text) !== 1) {
+            continue;
+        }
+
+        $fuel[] = $promo;
+    }
+
+    if ($fuel === []) {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Nie znaleziono aktualnej promocji paliwowej MOL.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'mol_no_fuel_promo',
+        ];
+    }
+
+    usort($fuel, static function (array $a, array $b): int {
+        $textA = (string) ($a['text'] ?? '');
+        $textB = (string) ($b['text'] ?? '');
+        $nicheA = preg_match('/magenta|wybranych\s+stacj/iu', $textA) === 1 ? 1 : 0;
+        $nicheB = preg_match('/magenta|wybranych\s+stacj/iu', $textB) === 1 ? 1 : 0;
+
+        if ($nicheA !== $nicheB) {
+            return $nicheA <=> $nicheB;
+        }
+
+        return mol_promo_gr_values($textB)['max'] <=> mol_promo_gr_values($textA)['max'];
+    });
+
+    $best = $fuel[0];
+    $rawText = (string) ($best['text'] ?? '');
+    $title = (string) ($best['title'] ?? 'Promocja paliwowa MOL');
+
+    $description = preg_replace('/\s*(Okres obowiązywania promocji|Data rozpocz\w+ promocji).*$/iu', '', $rawText) ?? $rawText;
+    $description = trim(preg_replace('/^' . preg_quote($title, '/') . '\s*/u', '', $description) ?? $description);
+
+    if ($description !== '' && function_exists('mb_substr') && mb_strlen($description, 'UTF-8') > 260) {
+        $description = rtrim(mb_substr($description, 0, 257, 'UTF-8')) . '...';
+    }
+
+    $gr = mol_promo_gr_values($rawText);
+    $maxGr = $gr['max'];
+
+    if ($maxGr <= 0) {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Nie udało się odczytać rabatu promocji paliwowej MOL.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'mol_no_discount',
+        ];
+    }
+
+    $from = is_string($best['fromIso'] ?? null) && $best['fromIso'] !== '' ? new DateTimeImmutable($best['fromIso']) : null;
+    $to = is_string($best['toIso'] ?? null) && $best['toIso'] !== '' ? new DateTimeImmutable($best['toIso']) : null;
+
+    if ($to instanceof DateTimeImmutable && $to->format('Y-m-d') < $fetchedAt->format('Y-m-d')) {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Promocja paliwowa MOL już się zakończyła.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'mol_expired',
+        ];
+    }
+
+    $dateRange = [
+        'fromLabel' => $from?->format('d.m.Y'),
+        'toLabel' => $to?->format('d.m.Y'),
+        'fromIso' => $from instanceof DateTimeImmutable ? $from->format('Y-m-d') : (new DateTimeImmutable('today'))->format('Y-m-d'),
+        'toIso' => $to?->format('Y-m-d'),
+        'rangeLabel' => ($from instanceof DateTimeImmutable && $to instanceof DateTimeImmutable)
+            ? $from->format('d.m.Y') . ' - ' . $to->format('d.m.Y')
+            : ($to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null),
+    ];
+
+    $item = build_station_promotion_payload(
+        'MOL',
+        $title,
+        $description,
+        $sourceUrl,
+        $sourceUrl,
+        $dateRange
+    );
+    $item['discountLabel'] = $maxGr . ' gr/l';
+    $item['discountValueGrPerL'] = $maxGr;
+    $item['sourceMode'] = 'mol_fuel_promotions';
+
+    $items = [$item];
+    station_promotions_sort($items);
+    mark_top_station_promotions($items);
+
+    return [
+        'url' => $sourceUrl,
+        'items' => $items,
+        'warnings' => [],
+        'warning' => null,
+        'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+        'sourceMode' => 'mol_fuel_promotions',
+    ];
+}
+
 function promo_display_fallback(string $network): array
 {
     $fuelMap = [
@@ -2595,6 +2783,7 @@ function promo_display_fallback(string $network): array
         'Shell' => ['benzyna' => [20, 35], 'diesel' => [20, 35], 'lpg' => [15, 15]],
         'ORLEN' => ['benzyna' => [20, 35], 'diesel' => [20, 35]],
         'MOYA' => ['benzyna' => [30, 40], 'diesel' => [30, 40]],
+        'MOL' => ['benzyna' => [36, 36], 'diesel' => [36, 36], 'lpg' => [19, 19]],
     ];
     $tierMap = [
         'BP' => ['baseCond' => 'na paliwa, z aplikacją BPme', 'maxCond' => null, 'when' => null],
@@ -2602,6 +2791,7 @@ function promo_display_fallback(string $network): array
         'Shell' => ['baseCond' => 'standardowo, bez dodatkowych zakupów', 'maxCond' => 'przy zakupie dowolnego produktu Shell (np. Café, myjnia)', 'when' => null],
         'ORLEN' => ['baseCond' => 'z kuponem w aplikacji ORLEN VITAY', 'maxCond' => 'przy zakupach pozapaliwowych min. 5 zł', 'when' => 'tylko w weekendy (pt.–ndz.)'],
         'MOYA' => ['baseCond' => 'z kuponem w aplikacji Super MOYA', 'maxCond' => 'przy zakupie w sklepie / Caffe MOYA min. 10 zł', 'when' => null],
+        'MOL' => ['baseCond' => 'z kuponem w aplikacji MOL Move', 'maxCond' => null, 'when' => null],
     ];
 
     $fuels = [];
@@ -2633,6 +2823,8 @@ function promo_extract_conditions(string $network, string $text, string $low, in
         $app = 'z kuponem w aplikacji Super MOYA';
     } elseif (stripos($text, 'ClubSmart') !== false) {
         $app = 'w aplikacji Shell ClubSmart';
+    } elseif (stripos($low, 'mol move') !== false) {
+        $app = 'z kuponem w aplikacji MOL Move';
     } elseif (stripos($text, 'Circle K extra') !== false || stripos($low, 'miles') !== false) {
         $app = 'z kuponem w aplikacji Circle K';
     }
@@ -2745,11 +2937,12 @@ function fetch_station_promotions(array $previousItems = []): array
     $shellOfficialPromotions = fetch_shell_fuel_promotions();
     $circlekPromotions = fetch_circlek_fuel_promotions();
     $moyaPromotions = fetch_moya_fuel_promotions();
+    $molPromotions = fetch_mol_fuel_promotions();
 
     $items = [];
     $freshNetworks = [];
 
-    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions, $circlekPromotions, $moyaPromotions] as $source) {
+    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions, $circlekPromotions, $moyaPromotions, $molPromotions] as $source) {
         if (!is_array($source)) {
             continue;
         }
@@ -2789,6 +2982,7 @@ function fetch_station_promotions(array $previousItems = []): array
         'Shell' => $shellOfficialPromotions['warnings'] ?? [],
         'Circle K' => $circlekPromotions['warnings'] ?? [],
         'MOYA' => $moyaPromotions['warnings'] ?? [],
+        'MOL' => $molPromotions['warnings'] ?? [],
     ];
 
     $warnings = [];
@@ -2995,8 +3189,9 @@ $promoConditions = [
     'ORLEN' => 'min. 5 zł zakupów',
     'Circle K' => 'na miles',
     'MOYA' => 'aplikacja Super MOYA',
+    'MOL' => 'aplikacja MOL Move',
 ];
-$promoKnownNetworks = ['BP', 'Circle K', 'Shell', 'ORLEN', 'MOYA'];
+$promoKnownNetworks = ['BP', 'Circle K', 'Shell', 'ORLEN', 'MOYA', 'MOL'];
 $promoData = [];
 foreach (($stationPromotions['items'] ?? []) as $promoItem) {
     if (!is_array($promoItem)) {
@@ -3718,7 +3913,8 @@ if ($isCronRefresh) {
             <a class="source-link" href="<?= e(circlek_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Circle K</a>,
             <a class="source-link" href="<?= e(shell_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Shell</a>,
             <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>,
-            <a class="source-link" href="<?= e(moya_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOYA</a>.
+            <a class="source-link" href="<?= e(moya_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOYA</a>,
+            <a class="source-link" href="<?= e(mol_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOL</a>.
             <br>
             Kod źródłowy projektu:
             <a class="source-link" href="https://github.com/udnn1/monitor-promocji-paliwowych" target="_blank" rel="noreferrer">github.com/udnn1/monitor-promocji-paliwowych</a>.
