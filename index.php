@@ -3971,7 +3971,7 @@ if ($isCronRefresh) {
             <div class="hero-id">
               <div class="hero-logo">${top.it.logo?`<img src="${top.it.logo}" alt="">`:''}</div>
               <div>
-                <div class="hero-kick">★ Okazja dnia</div>
+                <div class="hero-kick">★ TOP okazja</div>
                 <div class="hero-net">${top.it.net}</div>
                 <div class="hero-cond">${top.it.cond}</div>
               </div>
