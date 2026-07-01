@@ -2632,6 +2632,52 @@ if (isset($stationPromotions['items']) && is_array($stationPromotions['items']))
     mark_top_station_promotions($stationPromotions['items']);
 }
 
+$promoFuelMap = [
+    'BP' => ['benzyna' => [35, false], 'diesel' => [35, false], 'lpg' => [15, false]],
+    'Circle K' => ['benzyna' => [35, true, 30], 'diesel' => [35, true, 30], 'lpg' => [10, false]],
+    'Shell' => ['benzyna' => [35, false], 'diesel' => [35, false], 'lpg' => [15, false]],
+    'ORLEN' => ['benzyna' => [35, true, 20], 'diesel' => [35, true, 20]],
+];
+$promoConditions = [
+    'BP' => 'bezwarunkowo',
+    'Shell' => 'dowolny produkt Shell',
+    'ORLEN' => 'min. 5 zł zakupów',
+    'Circle K' => 'na miles',
+];
+$promoData = [];
+foreach (($stationPromotions['items'] ?? []) as $promoItem) {
+    if (!is_array($promoItem)) {
+        continue;
+    }
+
+    $promoNet = (string) ($promoItem['network'] ?? '');
+
+    if (!isset($promoFuelMap[$promoNet])) {
+        continue;
+    }
+
+    $promoFuels = [];
+    foreach ($promoFuelMap[$promoNet] as $promoFuel => $promoSpec) {
+        $promoFuels[$promoFuel] = [
+            'v' => (int) $promoSpec[0],
+            'g' => isset($promoSpec[2]) ? (int) $promoSpec[2] : (int) $promoSpec[0],
+            'upto' => (bool) $promoSpec[1],
+        ];
+    }
+
+    $promoData[] = [
+        'net' => $promoNet,
+        'logo' => station_logo_url($promoNet) ?? '',
+        'cond' => $promoConditions[$promoNet] ?? '',
+        'top' => !empty($promoItem['isTopPromotion']),
+        'fromIso' => $promoItem['fromIso'] ?? null,
+        'toIso' => $promoItem['toIso'] ?? null,
+        'desc' => normalize_display_dashes((string) ($promoItem['description'] ?? '')),
+        'url' => (string) ($promoItem['url'] ?? station_promotions_source_url()),
+        'fuels' => $promoFuels,
+    ];
+}
+
 $lastDataUpdateLabel = $snapshot['lastDataUpdateLabel'] ?? 'brak danych';
 
 $lastDataUpdateVisibleLabel = $snapshot['lastDataUpdateDateLabel'] ?? null;
@@ -2735,6 +2781,8 @@ if ($isCronRefresh) {
             --amber: #f4b942;
             --red: #c62828;
             --green: #198754;
+            --green-deep: #0c5b38;
+            --gold: #f4b942;
             --sky: #4f86f7;
             --mint: #1f8a70;
         }
@@ -3558,6 +3606,95 @@ if ($isCronRefresh) {
             .alerts-card { grid-template-columns: 1fr; }
             .telegram-cta { width: 100%; }
         }
+
+        .panel { background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:1.4rem 1.5rem; box-shadow:0 12px 30px var(--shadow); }
+        .empty { color:var(--muted); padding:1rem; }
+
+        .spot { display:grid; grid-template-columns:1.3fr 1fr; gap:1.1rem; margin-bottom:2rem; }
+        .hero { position:relative; border-radius:22px; padding:1.5rem 2rem; color:#fff; overflow:hidden; background:linear-gradient(120deg,#0c5b38,#1f8a70 52%,#35b592); box-shadow:0 22px 50px rgba(12,91,56,.4); display:flex; align-items:center; justify-content:space-between; gap:1.5rem 2.5rem; flex-wrap:wrap; }
+        .hero::after { content:"★"; position:absolute; right:2%; top:50%; transform:translateY(-50%); font-size:12rem; opacity:.1; line-height:0; }
+        .hero-id { display:flex; align-items:center; gap:1.1rem; position:relative; z-index:1; }
+        .hero-logo { width:64px; height:64px; flex:0 0 auto; border-radius:15px; background:rgba(255,255,255,.94); display:grid; place-items:center; }
+        .hero-logo img { width:76%; height:76%; object-fit:contain; }
+        .hero-kick { font-size:.74rem; text-transform:uppercase; letter-spacing:.12em; font-weight:800; opacity:.9; }
+        .hero-net { font-size:1.55rem; font-weight:900; letter-spacing:-.02em; line-height:1.05; margin-top:.15rem; }
+        .hero-cond { font-weight:600; opacity:.92; font-size:.9rem; margin-top:.1rem; }
+        .hero-big { text-align:center; position:relative; z-index:1; }
+        .hero-big .n { font-size:3.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; }
+        .hero-big small { display:block; font-size:.82rem; font-weight:700; opacity:.85; margin-top:.25rem; letter-spacing:.01em; }
+        .hero-foot { display:flex; flex-direction:column; gap:.5rem; position:relative; z-index:1; }
+        .hero-chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:.4rem .85rem; font-size:.84rem; font-weight:700; white-space:nowrap; }
+        .spot-side { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; align-content:start; }
+        .mini { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; box-shadow:0 8px 20px var(--shadow); display:flex; flex-direction:column; gap:.2rem; }
+        .mini-label { font-size:.72rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+        .mini-value { font-size:1.4rem; font-weight:900; letter-spacing:-.02em; }
+
+        .promo-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 350px), 1fr)); gap:1.25rem; align-items:start; }
+        .promo-item { position:relative; border-radius:20px; overflow:hidden; background:var(--surface); border:1px solid var(--line); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(18,52,59,.06), 0 18px 40px -18px var(--shadow); transition:transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s, border-color .2s; }
+        :root[data-theme="dark"] .promo-item { box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 20px 44px -20px rgba(0,0,0,.6); }
+        .promo-item:hover { transform:translateY(-3px); border-color:rgba(31,138,112,.3); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 26px 50px -20px var(--shadow); }
+        .promo-item.top { border-color:rgba(244,185,66,.5); }
+        .promo-item.top::after { content:""; position:absolute; inset:0; border-radius:20px; pointer-events:none; box-shadow:0 0 0 1px rgba(244,185,66,.35) inset; }
+        .pi-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; padding:1rem 1.1rem .85rem; }
+        .pi-id { display:flex; align-items:center; gap:.85rem; }
+        .pi-logo { width:52px; height:52px; flex:0 0 auto; display:grid; place-items:center; border-radius:13px; background:#fff; border:1px solid var(--line); box-shadow:0 4px 10px rgba(18,52,59,.08); }
+        :root[data-theme="dark"] .pi-logo { background:#f4f7f6; }
+        .pi-logo img { width:74%; height:74%; object-fit:contain; }
+        .pi-name { font-weight:850; font-size:1.15rem; letter-spacing:-.01em; line-height:1.1; }
+        .pi-sub { display:flex; align-items:center; gap:.4rem; margin-top:.25rem; font-size:.82rem; color:var(--muted); font-weight:600; }
+        .pi-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(31,138,112,.18); }
+        .pi-badge { display:inline-flex; align-items:center; gap:.25rem; background:linear-gradient(135deg, rgba(244,185,66,.9), rgba(230,154,26,.9)); color:#3a2600; font-weight:900; font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; padding:.28rem .55rem; border-radius:999px; box-shadow:0 4px 12px rgba(244,185,66,.35); margin-left:.5rem; }
+        .pi-disc { flex:0 0 auto; text-align:center; min-width:82px; padding:.45rem .7rem; border-radius:12px; background:linear-gradient(160deg, rgba(31,138,112,.12), rgba(31,138,112,.04)); border:1px solid rgba(31,138,112,.20); }
+        .promo-item.top .pi-disc { background:linear-gradient(160deg, rgba(244,185,66,.22), rgba(244,185,66,.06)); border-color:rgba(244,185,66,.35); }
+        .pi-disc .num { font-size:1.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; color:var(--green-deep); }
+        :root[data-theme="dark"] .pi-disc .num { color:#8ee0b4; }
+        .promo-item.top .pi-disc .num { color:#8a5a00; }
+        :root[data-theme="dark"] .promo-item.top .pi-disc .num { color:#f4b942; }
+        .pi-disc .unit { font-size:.62rem; font-weight:700; color:var(--muted); letter-spacing:.02em; margin-top:.12rem; }
+        .pi-rabaty { display:flex; flex-direction:column; align-items:stretch; gap:.4rem; min-width:118px; }
+        .pi-lpg { display:inline-flex; align-items:center; justify-content:center; gap:.25rem; font-size:.75rem; font-weight:800; color:var(--green-deep); background:rgba(31,138,112,.10); border:1px solid rgba(31,138,112,.18); border-radius:9px; padding:.26rem .4rem; }
+        :root[data-theme="dark"] .pi-lpg { color:#8ee0b4; }
+        .divider { height:1px; background:linear-gradient(90deg, transparent, var(--line) 12%, var(--line) 88%, transparent); }
+        .pi-meta { display:flex; flex-direction:column; gap:.7rem; padding:.9rem 1.1rem; }
+        .pi-cell + .pi-cell { border-top:1px solid var(--line); padding-top:.7rem; }
+        .pi-cell .lbl { font-size:.62rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:800; display:block; margin-bottom:.3rem; }
+        .pi-cell .val { font-weight:800; font-size:.92rem; }
+        .prog { position:relative; height:6px; margin-top:.45rem; background:rgba(120,130,140,.16); border-radius:999px; overflow:hidden; }
+        .prog > div { position:absolute; inset:0 auto 0 0; border-radius:999px; background:linear-gradient(90deg,var(--green),#35b592); }
+        .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
+        .days { font-size:.78rem; color:var(--muted); font-weight:700; margin-top:.35rem; }
+        .days.soon { color:#c62828; }
+        .save-lines { display:flex; flex-direction:column; gap:.2rem; }
+        .save-lines span { font-size:.82rem; color:var(--muted); white-space:nowrap; display:flex; justify-content:space-between; gap:1rem; }
+        .save-lines span b { color:var(--ink); font-weight:800; }
+        .pi-desc { padding:.9rem 1.1rem 1rem; background:rgba(120,130,140,.045); border-top:1px solid var(--line); }
+        .pi-desc .lbl { font-size:.62rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:800; display:block; margin-bottom:.35rem; }
+        .pi-desc p { margin:0; color:var(--ink); font-size:.85rem; line-height:1.55; opacity:.92; }
+        .pi-desc a { display:inline-flex; align-items:center; gap:.3rem; margin-top:.55rem; color:var(--green); font-weight:800; font-size:.82rem; text-decoration:none; }
+        .pi-desc a:hover { gap:.5rem; }
+
+        .tl { position:relative; }
+        .tl-head { position:relative; height:1.2rem; margin-left:114px; margin-right:150px; }
+        .tl-today-flag { position:absolute; transform:translateX(-50%); background:var(--gold); color:#3a2600; font-size:.68rem; font-weight:800; padding:.1rem .4rem; border-radius:6px; white-space:nowrap; }
+        .tl-row { display:grid; grid-template-columns:104px 1fr 150px; align-items:center; gap:1rem; margin:.45rem 0; }
+        .tl-name { font-weight:800; display:flex; align-items:center; gap:.45rem; font-size:.92rem; }
+        .tl-name img { width:22px; height:22px; object-fit:contain; }
+        .tl-lane { position:relative; height:18px; background:rgba(120,130,140,.10); border-radius:999px; }
+        .tl-marker { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--gold); z-index:2; }
+        .tl-bar { position:absolute; top:0; bottom:0; border-radius:999px; background:linear-gradient(90deg,rgba(31,138,112,.9),rgba(53,181,146,.9)); cursor:help; }
+        .tl-bar.soon { background:linear-gradient(90deg,#e8873a,#e3131b); }
+        .tl-tip { position:absolute; bottom:calc(100% + 9px); left:50%; transform:translateX(-50%); background:var(--ink); color:var(--surface); padding:.45rem .65rem; border-radius:9px; font-size:.74rem; font-weight:700; line-height:1.35; white-space:nowrap; text-align:left; opacity:0; pointer-events:none; transition:opacity .15s; box-shadow:0 10px 26px var(--shadow); z-index:6; }
+        .tl-tip::after { content:""; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:6px solid transparent; border-top-color:var(--ink); }
+        .tl-tip b { color:var(--gold); }
+        .tl-bar:hover .tl-tip, .tl-bar:focus .tl-tip { opacity:1; }
+        .tl-end { font-size:.8rem; color:var(--muted); text-align:right; }
+        .tl-end b { color:var(--ink); }
+
+        @media (max-width:900px){
+            .spot{grid-template-columns:1fr;}
+            .tl-head{display:none;}
+            .tl-row{grid-template-columns:80px 1fr;} .tl-end{grid-column:2;text-align:left;}
+        }
     </style>
 </head>
 <body>
@@ -3633,157 +3770,22 @@ if ($isCronRefresh) {
         </div>
 
         <div class="promotions-panel">
-            <section class="mb-4">
-                <article class="card-surface p-4 p-lg-5 h-100 promo-section-card">
-                    <div class="promo-toolbar">
-                        <div>
-                            <h2 class="section-title h1 mb-0">Aktualne promocje paliwowe</h2>
-                        </div>
-                    </div>
+            <?php if (!empty($stationPromotions['warning'])): ?>
+                <div class="promo-empty mb-4"><?= e((string) $stationPromotions['warning']) ?></div>
+            <?php endif; ?>
+            <?php if (!empty($stationPromotions['warnings']) && is_array($stationPromotions['warnings'])): ?>
+                <div class="promo-empty mb-4"><?= e(implode(' ', $stationPromotions['warnings'])) ?></div>
+            <?php endif; ?>
 
-                    <?php if (!empty($stationPromotions['warning'])): ?>
-                        <div class="promo-empty mb-4">
-                            <?= e((string) $stationPromotions['warning']) ?>
-                        </div>
-                    <?php endif; ?>
+            <div id="spot" class="spot"></div>
 
-                    <?php if (!empty($stationPromotions['warnings']) && is_array($stationPromotions['warnings'])): ?>
-                        <div class="promo-empty mb-4">
-                            <?= e(implode(' ', $stationPromotions['warnings'])) ?>
-                        </div>
-                    <?php endif; ?>
+            <h2 class="section-title h1 mb-3">Aktualne promocje paliwowe</h2>
+            <div id="cmpBody" class="promo-list">
+                <div class="promo-empty">Brak zapisanych promocji do pokazania. Kliknij „Odśwież dane”, żeby pobrać najnowszy snapshot.</div>
+            </div>
 
-                    <?php $promotionItems = is_array($stationPromotions['items'] ?? null) ? $stationPromotions['items'] : []; ?>
-
-                    <?php if ($promotionItems === []): ?>
-                        <div class="promo-empty">
-                            Brak zapisanych promocji do pokazania. Kliknij „Odśwież dane”, żeby spróbować pobrać najnowszy snapshot.
-                        </div>
-                    <?php else: ?>
-                        <div class="promo-grid">
-                            <?php foreach ($promotionItems as $promo): ?>
-                                <?php
-                                $network = (string) ($promo['network'] ?? 'Stacja');
-                                $title = normalize_display_dashes((string) ($promo['title'] ?? 'Promocja'));
-                                $description = normalize_display_dashes((string) ($promo['description'] ?? ''));
-                                $discountLabel = is_string($promo['discountLabel'] ?? null) ? normalize_display_dashes($promo['discountLabel']) : null;
-                                $dateRangeLabel = is_string($promo['dateRangeLabel'] ?? null) ? normalize_display_dashes($promo['dateRangeLabel']) : null;
-                                $toIso = $promo['toIso'] ?? null;
-                                $displayDateLabel = $dateRangeLabel;
-
-                                if (is_string($toIso) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $toIso, $toMatch) === 1) {
-                                    $displayDateLabel = 'do ' . $toMatch[3] . '.' . $toMatch[2] . '.' . $toMatch[1];
-                                }
-
-                                $url = (string) ($promo['url'] ?? station_promotions_source_url());
-                                $isActive = !empty($promo['isActive']);
-                                $isTopPromotion = !empty($promo['isTopPromotion']);
-                                $segments = is_array($promo['segments'] ?? null) ? $promo['segments'] : [];
-                                $logoUrl = station_logo_url($network);
-                                $logoClassSuffix = strtolower(str_replace(' ', '-', $network));
-                                ?>
-                                <?php if ($segments !== []): ?>
-                                <div class="promo-card promo-card-grouped <?= $isTopPromotion ? 'is-top-promo' : '' ?>">
-                                <?php else: ?>
-                                <a class="promo-card <?= $isTopPromotion ? 'is-top-promo' : '' ?>" href="<?= e($url) ?>" target="_blank" rel="noreferrer">
-                                <?php endif; ?>
-                                    <span class="promo-logo" aria-hidden="true">
-                                        <?php if (is_string($logoUrl) && trim($logoUrl) !== ''): ?>
-                                            <img
-                                                class="promo-logo-img promo-logo-img-<?= e($logoClassSuffix) ?>"
-                                                src="<?= e($logoUrl) ?>"
-                                                alt=""
-                                                loading="lazy"
-                                                decoding="async"
-                                            >
-                                        <?php else: ?>
-                                            <?= e(station_network_initial($network)) ?>
-                                        <?php endif; ?>
-                                    </span>
-
-                                    <span class="promo-body">
-                                        <?php if ($isTopPromotion): ?>
-                                            <span class="promo-top-line">
-                                                <span class="promo-top-badge">★ TOP okazja</span>
-                                            </span>
-                                        <?php endif; ?>
-
-                                        <span class="promo-title"><?= e($network) ?> - <?= e($title) ?></span>
-
-                                        <?php if ($segments !== []): ?>
-                                            <?php if ($description !== ''): ?>
-                                                <span class="small text-secondary promo-description">
-                                                    <?= e($description) ?>
-                                                </span>
-                                            <?php endif; ?>
-
-                                            <span class="promo-segments">
-                                                <?php foreach ($segments as $segment): ?>
-                                                    <?php
-                                                    $segHeading = normalize_display_dashes((string) ($segment['heading'] ?? ''));
-                                                    $segText = normalize_display_dashes((string) ($segment['text'] ?? ''));
-                                                    $segDiscount = is_string($segment['discountLabel'] ?? null) ? normalize_display_dashes($segment['discountLabel']) : null;
-                                                    $segDate = is_string($segment['dateLabel'] ?? null) ? normalize_display_dashes($segment['dateLabel']) : null;
-                                                    $segActive = !empty($segment['isActive']);
-                                                    $segUrl = (string) ($segment['url'] ?? $url);
-                                                    ?>
-                                                    <a class="promo-segment" href="<?= e($segUrl) ?>" target="_blank" rel="noreferrer">
-                                                        <?php if ($segHeading !== ''): ?>
-                                                            <span class="promo-segment-title"><?= e($segHeading) ?></span>
-                                                        <?php endif; ?>
-
-                                                        <?php if ($segText !== ''): ?>
-                                                            <span class="promo-segment-text promo-collapsible"><?= e($segText) ?></span>
-                                                            <span class="promo-toggle" role="button" tabindex="0" aria-expanded="false" hidden>Pokaż więcej</span>
-                                                        <?php endif; ?>
-
-                                                        <span class="promo-meta">
-                                                            <span class="promo-chip <?= $segActive ? 'promo-status-active' : 'promo-status-muted' ?>">
-                                                                <?= $segActive ? 'Aktywna' : 'Poza terminem / do weryfikacji' ?>
-                                                            </span>
-
-                                                            <?php if (is_string($segDiscount) && trim($segDiscount) !== ''): ?>
-                                                                <span class="promo-chip promo-discount"><?= e($segDiscount) ?></span>
-                                                            <?php endif; ?>
-
-                                                            <?php if (is_string($segDate) && trim($segDate) !== ''): ?>
-                                                                <span class="promo-chip promo-date"><?= e($segDate) ?></span>
-                                                            <?php endif; ?>
-                                                        </span>
-                                                    </a>
-                                                <?php endforeach; ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <?php if ($description !== ''): ?>
-                                                <span class="small text-secondary promo-description promo-collapsible"><?= e($description) ?></span>
-                                                <span class="promo-toggle" role="button" tabindex="0" aria-expanded="false" hidden>Pokaż więcej</span>
-                                            <?php endif; ?>
-
-                                            <span class="promo-meta">
-                                                <span class="promo-chip <?= $isActive ? 'promo-status-active' : 'promo-status-muted' ?>">
-                                                    <?= $isActive ? 'Aktywna' : 'Poza terminem / do weryfikacji' ?>
-                                                </span>
-
-                                                <?php if (is_string($discountLabel) && trim($discountLabel) !== ''): ?>
-                                                    <span class="promo-chip promo-discount"><?= e($discountLabel) ?></span>
-                                                <?php endif; ?>
-
-                                                <?php if (is_string($displayDateLabel) && trim($displayDateLabel) !== ''): ?>
-                                                    <span class="promo-chip promo-date"><?= e($displayDateLabel) ?></span>
-                                                <?php endif; ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </span>
-                                <?php if ($segments !== []): ?>
-                                </div>
-                                <?php else: ?>
-                                </a>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </article>
-            </section>
+            <h2 class="section-title h3 mt-5 mb-3">Oś ważności</h2>
+            <div class="panel"><div id="tl" class="tl"></div></div>
         </div>
 
         <footer class="page-footer py-4 text-secondary small">
@@ -3932,6 +3934,112 @@ if ($isCronRefresh) {
             window.history.replaceState({}, document.title, cleanUrl);
         }
     })();
+
+    const PROMO_DATA = <?= json_encode($promoData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const PROMO_SCALE = 40;
+    const pToday = new Date(); pToday.setHours(0,0,0,0);
+    const pFmt = (n) => n.toFixed(2).replace('.', ',');
+    const pParse = (iso) => { if(!iso) return null; const [y,m,d]=iso.split('-').map(Number); return new Date(y,m-1,d); };
+    const pDays = (iso) => { const d=pParse(iso); if(!d) return null; return Math.round((d-pToday)/86400000); };
+    const pDmy = (iso) => { const d=pParse(iso); if(!d) return '—'; return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+d.getFullYear(); };
+    const pStd = (it) => it.fuels.benzyna || it.fuels.diesel || null;
+    const pLpg = (it) => it.fuels.lpg || null;
+
+    function renderPromos(){
+        const rows = PROMO_DATA.map(it => ({it, off: pStd(it) || pLpg(it)})).filter(x => x.off).sort((a,b) => b.off.g - a.off.g);
+        const spot = document.getElementById('spot');
+        const body = document.getElementById('cmpBody');
+        const tl = document.getElementById('tl');
+        if (!spot || !body || !tl) return;
+
+        if (!rows.length){
+            spot.innerHTML = '';
+            tl.innerHTML = '<div class="empty">Brak zapisanych promocji.</div>';
+            return;
+        }
+
+        const top = rows[0];
+        const dl0 = pDays(top.it.toIso);
+        const save0 = pFmt(top.off.g*50/100);
+        const active = rows.length;
+        const maxV = Math.max(...rows.map(r=>r.off.v));
+        const ends = rows.map(r=>pDays(r.it.toIso)).filter(x=>x!==null&&x>=0);
+        const nearest = ends.length ? Math.min(...ends) : null;
+        const uncond = rows.filter(r=>!r.off.upto && r.it.cond==='bezwarunkowo').sort((a,b)=>b.off.g-a.off.g)[0];
+        spot.innerHTML = `
+          <div class="hero">
+            <div class="hero-id">
+              <div class="hero-logo">${top.it.logo?`<img src="${top.it.logo}" alt="">`:''}</div>
+              <div>
+                <div class="hero-kick">★ Okazja dnia</div>
+                <div class="hero-net">${top.it.net}</div>
+                <div class="hero-cond">${top.it.cond}</div>
+              </div>
+            </div>
+            <div class="hero-big"><span class="n">${top.off.upto?'do ':'−'}${top.off.v}</span><small>gr / litr · benzyna i diesel</small></div>
+            <div class="hero-foot">
+              <span class="hero-chip">💰 ~${save0} zł przy 50 l</span>
+              ${dl0!==null?`<span class="hero-chip">⏳ zostało ${dl0} dni</span>`:''}
+              <span class="hero-chip">✔ ${top.it.cond}</span>
+            </div>
+          </div>
+          <div class="spot-side">
+            <div class="mini"><span class="mini-label">Aktywne promocje</span><span class="mini-value">${active}</span></div>
+            <div class="mini"><span class="mini-label">Najwyższy rabat</span><span class="mini-value">−${maxV} gr/l</span></div>
+            <div class="mini"><span class="mini-label">Najbliższy koniec</span><span class="mini-value">${nearest!==null?nearest+' dni':'—'}</span></div>
+            <div class="mini"><span class="mini-label">Najlepsza bezwarunkowa</span><span class="mini-value">${uncond?uncond.it.net:'—'}</span></div>
+          </div>`;
+
+        body.innerHTML = rows.map((r) => {
+            const it=r.it, o=pStd(it)||r.off, lpg=pLpg(it);
+            const dl=pDays(it.toIso); const soon=dl!==null&&dl<=21;
+            const from=pParse(it.fromIso), to=pParse(it.toIso);
+            let elapsed=50;
+            if(from&&to&&to>from){ elapsed=Math.max(2,Math.min(100,(pToday-from)/(to-from)*100)); }
+            return `
+            <article class="promo-item ${it.top?'top':''}">
+              <div class="pi-head">
+                <div class="pi-id">
+                  ${it.logo?`<span class="pi-logo"><img src="${it.logo}" alt=""></span>`:''}
+                  <div>
+                    <div class="pi-name">${it.net}${it.top?'<span class="pi-badge">★ TOP okazja</span>':''}</div>
+                    <div class="pi-sub"><span class="pi-dot"></span>Aktywna promocja</div>
+                  </div>
+                </div>
+                <div class="pi-rabaty">
+                  <div class="pi-disc"><div class="num">${o.upto?'do ':'−'}${o.v}</div><div class="unit">gr/l · benzyna i diesel</div></div>
+                  ${lpg?`<span class="pi-lpg">🔵 LPG ${lpg.upto?'do ':'−'}${lpg.v} gr/l</span>`:''}
+                </div>
+              </div>
+              <div class="divider"></div>
+              <div class="pi-meta">
+                <div class="pi-cell"><span class="lbl">Warunek</span><span class="val">${it.cond}</span></div>
+                <div class="pi-cell"><span class="lbl">Ważność</span><span class="val">do ${pDmy(it.toIso)}</span><div class="prog ${soon?'soon':''}"><div style="width:${elapsed}%"></div></div><div class="days ${soon?'soon':''}">${dl!==null&&dl>=0?'zostało '+dl+' dni':'zakończona'}</div></div>
+                <div class="pi-cell"><span class="lbl">Szacowana oszczędność</span><span class="save-lines"><span>40 l <b>~${pFmt(o.g*40/100)} zł</b></span><span>45 l <b>~${pFmt(o.g*45/100)} zł</b></span><span>50 l <b>~${pFmt(o.g*50/100)} zł</b></span></span></div>
+              </div>
+              <div class="pi-desc"><span class="lbl">Opis promocji</span><p>${it.desc?it.desc:'Brak dodatkowego opisu.'}</p>${it.url?`<a href="${it.url}" target="_blank" rel="noreferrer">Otwórz stronę promocji →</a>`:''}</div>
+            </article>`;
+        }).join('');
+
+        const froms = rows.map(r=>pParse(r.it.fromIso)).filter(Boolean).map(d=>d.getTime());
+        const tos = rows.map(r=>pParse(r.it.toIso)).filter(Boolean).map(d=>d.getTime());
+        const start = Math.min(...froms), end = Math.max(...tos), span=Math.max(1,end-start);
+        const todayPct = Math.max(0,Math.min(100,(pToday.getTime()-start)/span*100));
+        tl.innerHTML = `<div class="tl-head"><span class="tl-today-flag" style="left:${todayPct}%">dziś</span></div>` +
+            rows.map(r=>{
+                const it=r.it;
+                const f=pParse(it.fromIso)?.getTime()??start, t=pParse(it.toIso)?.getTime()??end;
+                const left=(f-start)/span*100, width=Math.max(3,(t-f)/span*100);
+                const dl=pDays(it.toIso); const soon=dl!==null&&dl<=21;
+                return `<div class="tl-row">
+                  <div class="tl-name">${it.logo?`<img src="${it.logo}" alt="">`:''}<span>${it.net}</span></div>
+                  <div class="tl-lane"><div class="tl-marker" style="left:${todayPct}%"></div><div class="tl-bar ${soon?'soon':''}" style="left:${left}%;width:${width}%" tabindex="0"><span class="tl-tip"><b>Początek:</b> ${pDmy(it.fromIso)}<br><b>Koniec:</b> ${pDmy(it.toIso)}${dl!==null&&dl>=0?' (za '+dl+' dni)':''}</span></div></div>
+                  <div class="tl-end">do <b>${pDmy(it.toIso)}</b>${dl!==null&&dl>=0?' · za '+dl+' dni':''}</div>
+                </div>`;
+            }).join('');
+    }
+
+    renderPromos();
 </script>
 </body>
 </html>
