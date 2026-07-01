@@ -23,7 +23,12 @@ napędowy. Prezentacja: pojedynczy panel z siatką promocji, oznaczeniem
 ## Jak to działa
 
 - **Scraping** oficjalnych stron promocji każdej sieci (parsery per sieć,
-  z awaryjnym renderowaniem przeglądarkowym tam, gdzie potrzebne).
+  z awaryjnym renderowaniem przeglądarkowym tam, gdzie potrzebne). MOL jest
+  aplikacją SPA (treść renderowana JS-em), więc jego promocje pobiera headless
+  Chromium (`mol_scrape.py`, patchright) przy każdym odświeżeniu.
+- **Auto-adaptacja** – wysokości rabatów (baza/maksimum, LPG) i warunki są
+  wyliczane ze scrapowanego opisu przy każdym odświeżeniu (kuratorowana
+  konfiguracja jako bezpiecznik), więc zmiana warunków przez sieć aktualizuje kafelek automatycznie.
 - **Ranking** ofert względem realnego rabatu na benzynę i łatwości warunku:
   najpierw promocje bezwarunkowe, potem wysokość rabatu.
   Kolejność referencyjna: **BP** (−35 gr/l bezwarunkowo) →
