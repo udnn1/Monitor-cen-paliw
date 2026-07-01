@@ -3690,7 +3690,7 @@ if ($isCronRefresh) {
             <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>.
             <br>
             Kod źródłowy projektu:
-            <a class="source-link" href="https://github.com/udnn1/Monitor-cen-paliw" target="_blank" rel="noreferrer">github.com/udnn1/Monitor-cen-paliw</a>.
+            <a class="source-link" href="https://github.com/udnn1/monitor-promocji-paliwowych" target="_blank" rel="noreferrer">github.com/udnn1/monitor-promocji-paliwowych</a>.
         </footer>
     </main>
 </div>
