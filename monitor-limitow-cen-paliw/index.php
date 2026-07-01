@@ -106,7 +106,58 @@ function dashboard_refresh_lock_path(): string
     return cache_dir() . DIRECTORY_SEPARATOR . 'dashboard-refresh.lock';
 }
 
+function auto_refresh_throttle_seconds(): int
+{
+    return 180;
+}
 
+function auto_refresh_state_path(): string
+{
+    return cache_dir() . DIRECTORY_SEPARATOR . 'auto-refresh-state.json';
+}
+
+
+
+function auto_refresh_throttle_status(DateTimeImmutable $targetDate): array
+{
+    $now = time();
+    $targetIso = $targetDate->format('Y-m-d');
+    $state = read_json_array_file(auto_refresh_state_path());
+
+    if ((string) ($state['targetDateIso'] ?? '') !== $targetIso) {
+        return [
+            'active' => false,
+            'targetDateIso' => $targetIso,
+            'remainingSeconds' => 0,
+        ];
+    }
+
+    $cooldownUntil = (int) ($state['cooldownUntil'] ?? 0);
+
+    if ($cooldownUntil > $now) {
+        return [
+            'active' => true,
+            'targetDateIso' => $targetIso,
+            'cooldownUntil' => $cooldownUntil,
+            'remainingSeconds' => max(1, $cooldownUntil - $now),
+        ];
+    }
+
+    return [
+        'active' => false,
+        'targetDateIso' => $targetIso,
+        'remainingSeconds' => 0,
+    ];
+}
+function auto_refresh_state_lock_path(): string
+{
+    return cache_dir() . DIRECTORY_SEPARATOR . 'auto-refresh-state.lock';
+}
+
+function auto_refresh_session_stale_seconds(): int
+{
+    return 300;
+}
 
 function ensure_cache_dir(): bool
 {
@@ -238,12 +289,328 @@ function release_dashboard_refresh_lock($lock): void
 }
 
 
+function auto_refresh_article_cache_seconds(): int
+{
+    return 45;
+}
+
+
+function auto_refresh_expected_duration_seconds(): int
+{
+    return 75;
+}
+
+function acquire_auto_refresh_state_lock(bool $blocking = false)
+{
+    $lock = open_cache_lock_file(auto_refresh_state_lock_path());
+
+    if (!is_resource($lock)) {
+        return null;
+    }
+
+    $operation = LOCK_EX | ($blocking ? 0 : LOCK_NB);
+
+    if (!@flock($lock, $operation)) {
+        @fclose($lock);
+        return null;
+    }
+
+    return $lock;
+}
+
+function release_auto_refresh_state_lock($lock): void
+{
+    if (!is_resource($lock)) {
+        return;
+    }
+
+    @flock($lock, LOCK_UN);
+    @fclose($lock);
+}
+
+function auto_refresh_loading_status(DateTimeImmutable $targetDate): array
+{
+    $now = time();
+    $targetIso = $targetDate->format('Y-m-d');
+    $state = read_json_array_file(auto_refresh_state_path());
+
+    if ((string) ($state['targetDateIso'] ?? '') === $targetIso) {
+        $inProgress = !empty($state['inProgress']);
+        $startedAt = (int) ($state['startedAt'] ?? 0);
+        $updatedAt = (int) ($state['updatedAt'] ?? $startedAt);
+        $lastActivityAt = $updatedAt > 0 ? $updatedAt : $startedAt;
+        $expectedUntil = (int) ($state['expectedRefreshUntil'] ?? 0);
+        $isFresh = $lastActivityAt > 0 && ($lastActivityAt + auto_refresh_session_stale_seconds()) > $now;
+
+        if ($inProgress && $isFresh) {
+            return [
+                'active' => true,
+                'targetDateIso' => $targetIso,
+                'remainingSeconds' => $expectedUntil > $now ? max(1, $expectedUntil - $now) : 8,
+                'reason' => 'refresh_state',
+            ];
+        }
+    }
+
+    $dashboardLock = acquire_dashboard_refresh_lock(false);
+
+    if (!is_resource($dashboardLock)) {
+        $expectedUntil = (int) ($state['expectedRefreshUntil'] ?? 0);
+
+        return [
+            'active' => true,
+            'targetDateIso' => $targetIso,
+            'remainingSeconds' => $expectedUntil > $now ? max(1, $expectedUntil - $now) : 8,
+            'reason' => 'refresh_lock',
+        ];
+    }
+
+    release_dashboard_refresh_lock($dashboardLock);
+
+    return [
+        'active' => false,
+        'targetDateIso' => $targetIso,
+        'remainingSeconds' => 0,
+        'reason' => 'none',
+    ];
+}
 
 
 
+function find_expected_fuel_update_article_cached(DateTimeImmutable $targetDate, bool $allowNetwork = true): ?array
+{
+    $now = time();
+    $targetIso = $targetDate->format('Y-m-d');
+    $statePath = auto_refresh_state_path();
+    $state = read_json_array_file($statePath);
+
+    if ((string) ($state['targetDateIso'] ?? '') === $targetIso) {
+        $articleCacheUntil = (int) ($state['articleCacheUntil'] ?? 0);
+
+        if ($articleCacheUntil > $now) {
+            $article = $state['article'] ?? null;
+
+            if (is_array($article)) {
+                return $article;
+            }
+
+            if (!empty($state['articleMissing'])) {
+                return null;
+            }
+        }
+    }
+
+    if (!$allowNetwork) {
+        return null;
+    }
+
+    $lock = acquire_auto_refresh_state_lock(false);
+
+    if (!is_resource($lock)) {
+        return null;
+    }
+
+    try {
+        $now = time();
+        $state = read_json_array_file($statePath);
+
+        if ((string) ($state['targetDateIso'] ?? '') === $targetIso) {
+            $articleCacheUntil = (int) ($state['articleCacheUntil'] ?? 0);
+
+            if ($articleCacheUntil > $now) {
+                $article = $state['article'] ?? null;
+
+                if (is_array($article)) {
+                    return $article;
+                }
+
+                if (!empty($state['articleMissing'])) {
+                    return null;
+                }
+            }
+        } else {
+            $state = [];
+        }
+
+        $state['targetDateIso'] = $targetIso;
+        $state['articleCheckingStartedAt'] = $now;
+        $state['articleCheckingUntil'] = $now + 30;
+        $state['updatedAt'] = $now;
+        write_json_array_file($statePath, $state);
+
+        $article = find_expected_fuel_update_article($targetDate);
+
+        $state = read_json_array_file($statePath);
+        $state['targetDateIso'] = $targetIso;
+        $state['articleCheckedAt'] = time();
+        $state['articleCacheUntil'] = time() + auto_refresh_article_cache_seconds();
+        $state['articleCheckingUntil'] = 0;
+        $state['updatedAt'] = time();
+
+        if (is_array($article)) {
+            $state['article'] = $article;
+            unset($state['articleMissing']);
+        } else {
+            unset($state['article']);
+            $state['articleMissing'] = true;
+        }
+
+        write_json_array_file($statePath, $state);
+
+        return is_array($article) ? $article : null;
+    } finally {
+        release_auto_refresh_state_lock($lock);
+    }
+}
 
 
 
+function auto_refresh_probe_busy_status(DateTimeImmutable $targetDate): array
+{
+    $now = time();
+    $targetIso = $targetDate->format('Y-m-d');
+    $state = read_json_array_file(auto_refresh_state_path());
+
+    if ((string) ($state['targetDateIso'] ?? '') !== $targetIso) {
+        return [
+            'active' => false,
+            'targetDateIso' => $targetIso,
+            'remainingSeconds' => 0,
+        ];
+    }
+
+    $checkingUntil = (int) ($state['articleCheckingUntil'] ?? 0);
+
+    if ($checkingUntil > $now) {
+        return [
+            'active' => true,
+            'targetDateIso' => $targetIso,
+            'remainingSeconds' => max(1, $checkingUntil - $now),
+        ];
+    }
+
+    return [
+        'active' => false,
+        'targetDateIso' => $targetIso,
+        'remainingSeconds' => 0,
+    ];
+}
+
+function auto_refresh_mark_loading(DateTimeImmutable $targetDate): void
+{
+    if (!ensure_cache_dir()) {
+        return;
+    }
+
+    $targetIso = $targetDate->format('Y-m-d');
+    $lock = acquire_auto_refresh_state_lock(true);
+
+    if (!is_resource($lock)) {
+        return;
+    }
+
+    try {
+        $now = time();
+        $state = read_json_array_file(auto_refresh_state_path());
+
+        if ((string) ($state['targetDateIso'] ?? '') !== $targetIso) {
+            $state = [];
+        }
+
+        try {
+            $sessionId = bin2hex(random_bytes(8));
+        } catch (Throwable $exception) {
+            $sessionId = str_replace('.', '', uniqid('auto-', true));
+        }
+
+        $state['targetDateIso'] = $targetIso;
+        $state['inProgress'] = true;
+        $state['sessionId'] = $sessionId;
+        $state['startedAt'] = $now;
+        $state['updatedAt'] = $now;
+        $state['expectedRefreshUntil'] = $now + auto_refresh_expected_duration_seconds();
+        $state['articleCheckingUntil'] = 0;
+
+        write_json_array_file(auto_refresh_state_path(), $state);
+    } finally {
+        release_auto_refresh_state_lock($lock);
+    }
+}
+
+
+function auto_refresh_clear_loading(DateTimeImmutable $targetDate): void
+{
+    if (!ensure_cache_dir()) {
+        return;
+    }
+
+    $targetIso = $targetDate->format('Y-m-d');
+    $lock = acquire_auto_refresh_state_lock(true);
+
+    if (!is_resource($lock)) {
+        return;
+    }
+
+    try {
+        $state = read_json_array_file(auto_refresh_state_path());
+
+        if ((string) ($state['targetDateIso'] ?? '') === $targetIso) {
+            $now = time();
+            $state['inProgress'] = false;
+            $state['updatedAt'] = $now;
+            $state['endedAt'] = $now;
+            $state['expectedRefreshUntil'] = 0;
+
+            write_json_array_file(auto_refresh_state_path(), $state);
+        }
+    } finally {
+        release_auto_refresh_state_lock($lock);
+    }
+}
+
+
+function auto_refresh_throttle_claim(DateTimeImmutable $targetDate): array
+{
+    if (!ensure_cache_dir()) {
+        return ['allowed' => true];
+    }
+
+    $now = time();
+    $targetIso = $targetDate->format('Y-m-d');
+    $statePath = auto_refresh_state_path();
+    $state = read_json_array_file($statePath);
+    $stateTargetIso = (string) ($state['targetDateIso'] ?? '');
+    $cooldownUntil = (int) ($state['cooldownUntil'] ?? 0);
+
+    if ($stateTargetIso === $targetIso && $cooldownUntil > $now) {
+        return [
+            'allowed' => false,
+            'targetDateIso' => $targetIso,
+            'cooldownUntil' => $cooldownUntil,
+            'remainingSeconds' => $cooldownUntil - $now,
+        ];
+    }
+
+    $cooldownSeconds = auto_refresh_throttle_seconds();
+    $state = array_merge(
+        $stateTargetIso === $targetIso ? $state : [],
+        [
+            'targetDateIso' => $targetIso,
+            'attemptedAt' => $now,
+            'cooldownUntil' => $now + $cooldownSeconds,
+            'cooldownSeconds' => $cooldownSeconds,
+        ]
+    );
+
+    write_json_array_file($statePath, $state);
+
+    return [
+        'allowed' => true,
+        'targetDateIso' => $targetIso,
+        'cooldownUntil' => $state['cooldownUntil'],
+        'remainingSeconds' => $cooldownSeconds,
+    ];
+}
 
 function manual_refresh_cooldown_claim(): array
 {
@@ -630,6 +997,11 @@ function orlen_press_promotion_end_date(string $text): ?DateTimeImmutable
     }
 
     return orlen_vitay_promotion_end_date($text);
+}
+
+function telegram_alert_bot_url(): string
+{
+    return 'https://t.me/CenyCPNpl';
 }
 
 function bp_official_absolute_url(string $url): string
@@ -2330,25 +2702,1803 @@ function fetch_station_promotions(array $previousItems = []): array
     ];
 }
 
+function extract_match(string $pattern, string $html, int $group = 1): ?string
+{
+    if (preg_match($pattern, $html, $matches) === 1 && isset($matches[$group])) {
+        return clean_text($matches[$group]);
+    }
+
+    return null;
+}
+
+function polish_month_genitive(int $month): string
+{
+    return [
+        1 => 'stycznia',
+        2 => 'lutego',
+        3 => 'marca',
+        4 => 'kwietnia',
+        5 => 'maja',
+        6 => 'czerwca',
+        7 => 'lipca',
+        8 => 'sierpnia',
+        9 => 'września',
+        10 => 'października',
+        11 => 'listopada',
+        12 => 'grudnia',
+    ][$month] ?? '';
+}
+
+function normalize_gov_article_title(string $value): string
+{
+    $value = clean_text($value);
+    $value = str_replace(['–', '—'], '-', $value);
+    $value = preg_replace('/[[:punct:]]+/u', ' ', $value) ?? $value;
+    $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+    $value = trim($value);
+
+    return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+}
+
+function gov_slugify_pl(string $value): string
+{
+    $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+
+    $value = strtr($value, [
+        'ą' => 'a',
+        'ć' => 'c',
+        'ę' => 'e',
+        'ł' => 'l',
+        'ń' => 'n',
+        'ó' => 'o',
+        'ś' => 's',
+        'ź' => 'z',
+        'ż' => 'z',
+    ]);
+
+    $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? $value;
+    return trim($value, '-');
+}
+
+function gov_target_date_variants(DateTimeImmutable $targetDate): array
+{
+    $day = (int) $targetDate->format('j');
+    $month = polish_month_genitive((int) $targetDate->format('n'));
+    $year = $targetDate->format('Y');
+
+    return array_values(array_unique([
+        $targetDate->format('d.m.Y'),
+        $targetDate->format('j.m.Y'),
+        $day . ' ' . $month . ' ' . $year,
+        $day . ' ' . $month . ' ' . $year . ' r',
+        $day . ' ' . $month . ' ' . $year . ' r.',
+    ]));
+}
+
+function gov_date_range_from_parts(int $fromDay, int $fromMonth, ?int $fromYear, int $toDay, int $toMonth, int $toYear): ?array
+{
+    if ($fromYear === null) {
+        $fromYear = $fromMonth > $toMonth ? $toYear - 1 : $toYear;
+    }
+
+    if (!checkdate($fromMonth, $fromDay, $fromYear) || !checkdate($toMonth, $toDay, $toYear)) {
+        return null;
+    }
+
+    $from = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $fromYear, $fromMonth, $fromDay));
+    $to = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $toYear, $toMonth, $toDay));
+
+    if ($from > $to) {
+        return null;
+    }
+
+    return [
+        'from' => $from,
+        'to' => $to,
+    ];
+}
+
+function polish_month_number_from_name(string $monthName): ?int
+{
+    $months = [
+        'stycznia' => 1,
+        'lutego' => 2,
+        'marca' => 3,
+        'kwietnia' => 4,
+        'maja' => 5,
+        'czerwca' => 6,
+        'lipca' => 7,
+        'sierpnia' => 8,
+        'września' => 9,
+        'wrzesnia' => 9,
+        'października' => 10,
+        'pazdziernika' => 10,
+        'listopada' => 11,
+        'grudnia' => 12,
+    ];
+
+    $key = function_exists('mb_strtolower') ? mb_strtolower(trim($monthName), 'UTF-8') : strtolower(trim($monthName));
+    return $months[$key] ?? null;
+}
+
+function gov_numeric_date_ranges(string $value): array
+{
+    $haystack = clean_text($value);
+
+    if ($haystack === '') {
+        return [];
+    }
+
+    $ranges = [];
+    $rangePatterns = [
+        '/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\.?\s*[\-\x{2013}\x{2014}]\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\b/u',
+        '/\b(\d{1,2})-(\d{1,2})(?:-(\d{4}))?-(\d{1,2})-(\d{1,2})-(\d{4})\b/u',
+    ];
+
+    foreach ($rangePatterns as $pattern) {
+        if (preg_match_all($pattern, $haystack, $matches, PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL) <= 0) {
+            continue;
+        }
+
+        foreach ($matches as $match) {
+            $fromYear = isset($match[3]) && $match[3] !== null && $match[3] !== '' ? (int) $match[3] : null;
+            $range = gov_date_range_from_parts((int) $match[1], (int) $match[2], $fromYear, (int) $match[4], (int) $match[5], (int) $match[6]);
+
+            if ($range !== null) {
+                $ranges[] = $range;
+            }
+        }
+    }
+
+    if (preg_match_all('/\b(\d{2})(\d{2})[\-\x{2013}\x{2014}](\d{2})(\d{2})(\d{4})\b/u', $haystack, $compactMatches, PREG_SET_ORDER) > 0) {
+        foreach ($compactMatches as $match) {
+            $range = gov_date_range_from_parts((int) $match[1], (int) $match[2], null, (int) $match[3], (int) $match[4], (int) $match[5]);
+
+            if ($range !== null) {
+                $ranges[] = $range;
+            }
+        }
+    }
+
+    $monthPattern = 'stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|wrzesnia|października|pazdziernika|listopada|grudnia';
+
+    if (preg_match_all('/\b(\d{1,2})\s*[\-\x{2013}\x{2014}]\s*(\d{1,2})[\s\-]+(' . $monthPattern . ')[\s\-]+(\d{4})\b/iu', $haystack, $textualSameMonthMatches, PREG_SET_ORDER) > 0) {
+        foreach ($textualSameMonthMatches as $match) {
+            $month = polish_month_number_from_name($match[3]);
+
+            if ($month === null) {
+                continue;
+            }
+
+            $range = gov_date_range_from_parts((int) $match[1], $month, null, (int) $match[2], $month, (int) $match[4]);
+
+            if ($range !== null) {
+                $ranges[] = $range;
+            }
+        }
+    }
+
+    if (preg_match_all('/\b(\d{1,2})[\s\-]+(' . $monthPattern . ')\s*[\-\x{2013}\x{2014}]\s*(\d{1,2})[\s\-]+(' . $monthPattern . ')[\s\-]+(\d{4})\b/iu', $haystack, $textualCrossMonthMatches, PREG_SET_ORDER) > 0) {
+        foreach ($textualCrossMonthMatches as $match) {
+            $fromMonth = polish_month_number_from_name($match[2]);
+            $toMonth = polish_month_number_from_name($match[4]);
+
+            if ($fromMonth === null || $toMonth === null) {
+                continue;
+            }
+
+            $range = gov_date_range_from_parts((int) $match[1], $fromMonth, null, (int) $match[3], $toMonth, (int) $match[5]);
+
+            if ($range !== null) {
+                $ranges[] = $range;
+            }
+        }
+    }
+
+    return $ranges;
+}
+
+function gov_article_date_range_points_to_target_date(string $value, DateTimeImmutable $targetDate): bool
+{
+    $targetIso = $targetDate->format('Y-m-d');
+
+    foreach (gov_numeric_date_ranges($value) as $range) {
+        $from = $range['from'];
+        $to = $range['to'];
+
+        if ($targetIso >= $from->format('Y-m-d') && $targetIso <= $to->format('Y-m-d')) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function expected_gov_fuel_update_title(DateTimeImmutable $targetDate): string
+{
+    return 'Maksymalna cena detaliczna paliw obowiązująca ' . (int) $targetDate->format('j') . ' ' . polish_month_genitive((int) $targetDate->format('n')) . ' ' . $targetDate->format('Y') . ' r.';
+}
+
+function gov_absolute_url(string $url): string
+{
+    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+    if ($url === '') {
+        return '';
+    }
+
+    if (preg_match('~^https?://~i', $url) === 1) {
+        return $url;
+    }
+
+    if (str_starts_with($url, '//')) {
+        return 'https:' . $url;
+    }
+
+    if (str_starts_with($url, '/')) {
+        return 'https://www.gov.pl' . $url;
+    }
+
+    return 'https://www.gov.pl/' . ltrim($url, '/');
+}
+
+function gov_article_points_to_target_date(string $title, string $url, DateTimeImmutable $targetDate): bool
+{
+    $titleKey = normalize_gov_article_title($title);
+    $urlKey = gov_slugify_pl($url);
+
+    if (
+        !text_contains_ci($titleKey, 'maksymalna cena detaliczna paliw')
+        && !str_contains($urlKey, 'maksymalna-cena-detaliczna-paliw')
+    ) {
+        return false;
+    }
+
+    if (gov_article_date_range_points_to_target_date($title . ' ' . $url, $targetDate)) {
+        return true;
+    }
+
+    foreach (gov_target_date_variants($targetDate) as $variant) {
+        $variantKey = normalize_gov_article_title($variant);
+
+        if ($variantKey !== '' && text_contains_ci($titleKey, $variantKey)) {
+            return true;
+        }
+
+        $variantSlug = gov_slugify_pl($variant);
+
+        if ($variantSlug !== '' && str_contains($urlKey, $variantSlug)) {
+            return true;
+        }
+    }
+
+    $day = (int) $targetDate->format('j');
+    $month = polish_month_genitive((int) $targetDate->format('n'));
+    $year = $targetDate->format('Y');
+    $textualSlug = gov_slugify_pl($day . ' ' . $month . ' ' . $year);
+
+    return $textualSlug !== '' && str_contains($urlKey, $textualSlug);
+}
+
+function find_expected_gov_fuel_update_article(DateTimeImmutable $targetDate): ?array
+{
+    $listingUrls = [
+        'https://www.gov.pl/web/energia/wiadomosci?page=0&size=20',
+        'https://www.gov.pl/web/energia/wiadomosci',
+    ];
+
+    foreach ($listingUrls as $listingUrl) {
+        $html = http_get_light($listingUrl);
+
+        if (!is_string($html) || trim($html) === '') {
+            continue;
+        }
+
+        if (preg_match_all('/<a\b[^>]*href=("|\')([^"\']+)\1[^>]*>(.*?)<\/a>/isu', $html, $matches, PREG_SET_ORDER) > 0) {
+            foreach ($matches as $match) {
+                $href = gov_absolute_url($match[2]);
+                $title = clean_text($match[3]);
+
+                if ($href === '' || $title === '') {
+                    continue;
+                }
+
+                if (gov_article_points_to_target_date($title, $href, $targetDate)) {
+                    return [
+                        'title' => $title,
+                        'expectedTitle' => expected_gov_fuel_update_title($targetDate),
+                        'url' => $href,
+                        'targetDateIso' => $targetDate->format('Y-m-d'),
+                        'targetDateLabel' => $targetDate->format('d.m.Y'),
+                        'foundAtIso' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
+                    ];
+                }
+            }
+        }
+
+        if (gov_article_points_to_target_date(clean_text($html), '', $targetDate)) {
+            return [
+                'title' => expected_gov_fuel_update_title($targetDate),
+                'expectedTitle' => expected_gov_fuel_update_title($targetDate),
+                'url' => $listingUrl,
+                'targetDateIso' => $targetDate->format('Y-m-d'),
+                'targetDateLabel' => $targetDate->format('d.m.Y'),
+                'foundAtIso' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
+            ];
+        }
+    }
+
+    return null;
+}
+
+function find_expected_monitor_polish_fuel_update_article(DateTimeImmutable $targetDate): ?array
+{
+    $warnings = [];
+    $notice = fetch_monitor_polish_latest_fuel_notice($warnings);
+
+    if ($notice === null) {
+        return null;
+    }
+
+    $publishedIso = $notice['publishedDateIso'] ?? null;
+    $expectedPublishedIso = $targetDate->modify('-1 day')->format('Y-m-d');
+
+    if (!is_string($publishedIso) || $publishedIso === '' || $publishedIso !== $expectedPublishedIso) {
+        return null;
+    }
+
+    return [
+        'title' => (string) ($notice['title'] ?? 'Obwieszczenie Monitor Polski'),
+        'expectedTitle' => expected_gov_fuel_update_title($targetDate),
+        'url' => (string) ($notice['url'] ?? monitor_polish_source_url()),
+        'source' => 'monitor_polish',
+        'targetDateIso' => $targetDate->format('Y-m-d'),
+        'targetDateLabel' => $targetDate->format('d.m.Y'),
+        'foundAtIso' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
+    ];
+}
+
+function find_expected_fuel_update_article(DateTimeImmutable $targetDate): ?array
+{
+    return find_expected_gov_fuel_update_article($targetDate)
+        ?? find_expected_monitor_polish_fuel_update_article($targetDate);
+}
+
+function announcement_matches_effective_date(?array $announcement, DateTimeImmutable $targetDate): bool
+{
+    if (!is_array($announcement)) {
+        return false;
+    }
+
+    $prices = $announcement['prices'] ?? [];
+
+    if (!is_array($prices) || $prices === []) {
+        return false;
+    }
+
+    $targetIso = $targetDate->format('Y-m-d');
+    $fromIso = $announcement['effectiveFromIso'] ?? null;
+    $toIso = $announcement['effectiveToIso'] ?? null;
+
+    if (!is_string($fromIso) || $fromIso === '') {
+        return false;
+    }
+
+    if (!is_string($toIso) || $toIso === '') {
+        $toIso = $fromIso;
+    }
+
+    return $targetIso >= $fromIso && $targetIso <= $toIso;
+}
+
+function dashboard_snapshot_has_prices_for_date(array $snapshot, DateTimeImmutable $targetDate): bool
+{
+    if (announcement_matches_effective_date($snapshot['currentAnnouncement'] ?? null, $targetDate)) {
+        return true;
+    }
+
+    if (announcement_matches_effective_date($snapshot['tomorrowAnnouncement'] ?? null, $targetDate)) {
+        return true;
+    }
+
+    $announcements = $snapshot['announcements'] ?? [];
+
+    if (is_array($announcements)) {
+        foreach ($announcements as $announcement) {
+            if (is_array($announcement) && announcement_matches_effective_date($announcement, $targetDate)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 
 
 
 
+function gov_fuel_update_button_state(array $snapshot): array
+{
+    $targetDate = new DateTimeImmutable('tomorrow');
 
+    return [
+        'available' => false,
+        'targetDateIso' => $targetDate->format('Y-m-d'),
+        'targetDateLabel' => $targetDate->format('d.m.Y'),
+        'article' => null,
+        'loading' => false,
+    ];
+}
+
+
+
+
+function http_get_binary(string $url, array $headers = []): ?string
+{
+    $headers = array_merge([
+        'Accept: application/pdf,*/*;q=0.8',
+        'Accept-Language: pl-PL,pl;q=0.9,en;q=0.6',
+        'Cache-Control: no-cache',
+        'Pragma: no-cache',
+        'User-Agent: FuelMonitor/2.4 (+local dashboard; binary fallback)',
+    ], $headers);
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_TIMEOUT => 16,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ]);
+
+        $body = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        if (is_string($body) && $body !== '' && $status >= 200 && $status < 300) {
+            return $body;
+        }
+    }
+
+    if (function_exists('shell_exec')) {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'fuel-pdf-');
+
+        if (is_string($tmpPath) && $tmpPath !== '') {
+            $command = curl_shell_binary() . ' -L -s --connect-timeout 5 --max-time 16 '
+                . '-A "FuelMonitor/2.4 (+local dashboard; binary fallback)" '
+                . '-o ' . escapeshellarg($tmpPath) . ' '
+                . escapeshellarg($url);
+
+            shell_exec($command);
+
+            $body = is_file($tmpPath) ? @file_get_contents($tmpPath) : false;
+            @unlink($tmpPath);
+
+            if (is_string($body) && $body !== '') {
+                return $body;
+            }
+        }
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'header' => implode("\r\n", $headers),
+            'timeout' => 16,
+            'ignore_errors' => true,
+        ],
+    ]);
+
+    $body = @file_get_contents($url, false, $context);
+    if (is_string($body) && $body !== '') {
+        return $body;
+    }
+
+    return null;
+}
+
+function monitor_polish_source_url(): string
+{
+    return 'https://monitorpolski.gov.pl/MP';
+}
+
+function monitor_polish_absolute_url(string $url): string
+{
+    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+    if ($url === '') {
+        return '';
+    }
+
+    if (preg_match('~^https?://~i', $url) === 1) {
+        return $url;
+    }
+
+    if (str_starts_with($url, '//')) {
+        return 'https:' . $url;
+    }
+
+    if (str_starts_with($url, '/')) {
+        return 'https://monitorpolski.gov.pl' . $url;
+    }
+
+    return 'https://monitorpolski.gov.pl/' . ltrim($url, '/');
+}
+
+function monitor_polish_title_is_fuel_notice(string $title): bool
+{
+    $title = clean_text($title);
+
+    return (
+        text_contains_ci($title, 'maksymalnej ceny paliw')
+        || text_contains_ci($title, 'maksymalna cena paliw')
+    ) && text_contains_ci($title, 'stacji paliw');
+}
+
+function monitor_polish_parse_iso_date(?string $raw): ?DateTimeImmutable
+{
+    if (!is_string($raw) || trim($raw) === '') {
+        return null;
+    }
+
+    $date = DateTimeImmutable::createFromFormat('Y-m-d', trim($raw));
+    return $date instanceof DateTimeImmutable ? $date : null;
+}
+
+function fetch_monitor_polish_notice_detail(string $url, ?string $listingTitle, array &$warnings): ?array
+{
+    $html = http_get_light($url);
+
+    if (!is_string($html) || trim($html) === '') {
+        $warnings[] = 'Nie udalo sie pobrac szczegolow aktu z Monitor Polski.';
+        return null;
+    }
+
+    $title = extract_match('/<h2\b[^>]*class=("|\')[^"\']*\bone-item-heading\b[^"\']*\1[^>]*>(.*?)<\/h2>/isu', $html, 2)
+        ?? extract_match('/<h1\b[^>]*id=("|\')h_title\1[^>]*>(.*?)<\/h1>/isu', $html, 2)
+        ?? $listingTitle
+        ?? 'Obwieszczenie Monitor Polski';
+
+    if (!monitor_polish_title_is_fuel_notice($title)) {
+        return null;
+    }
+
+    $publishedDateIso = extract_match('/Data\s+og[łl]oszenia:\s*<\/td>\s*<td\b[^>]*>.*?<span>\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/isu', $html);
+
+    if (preg_match_all('/<a\b[^>]*href=("|\')([^"\']+\.pdf(?:\?[^"\']*)?)\1/isu', $html, $pdfMatches, PREG_SET_ORDER) <= 0) {
+        $warnings[] = 'Akt Monitor Polski nie zawiera linku do PDF.';
+        return null;
+    }
+
+    $pdfUrl = '';
+
+    foreach ($pdfMatches as $match) {
+        $candidate = monitor_polish_absolute_url($match[2]);
+
+        if ($candidate !== '') {
+            $pdfUrl = $candidate;
+            break;
+        }
+    }
+
+    if ($pdfUrl === '') {
+        $warnings[] = 'Nie udalo sie ustalic adresu PDF w Monitor Polski.';
+        return null;
+    }
+
+    $publishedDate = null;
+    $publishedDateObj = monitor_polish_parse_iso_date($publishedDateIso);
+
+    if ($publishedDateObj instanceof DateTimeImmutable) {
+        $publishedDate = $publishedDateObj->format('d.m.Y');
+    }
+
+    return [
+        'title' => $title,
+        'url' => $url,
+        'pdfUrl' => $pdfUrl,
+        'publishedDate' => $publishedDate,
+        'publishedDateIso' => $publishedDateObj?->format('Y-m-d'),
+    ];
+}
+
+function fetch_monitor_polish_latest_fuel_notice(array &$warnings): ?array
+{
+    $listingHtml = http_get_light(monitor_polish_source_url());
+
+    if (!is_string($listingHtml) || trim($listingHtml) === '') {
+        $warnings[] = 'Nie udalo sie pobrac listy aktow z Monitor Polski.';
+        return null;
+    }
+
+    $detailUrls = [];
+
+    if (preg_match_all('/<a\b[^>]*href=("|\')(\/MP\/[0-9]{4}\/[0-9]+)\1[^>]*>(.*?)<\/a>/isu', $listingHtml, $matches, PREG_SET_ORDER) > 0) {
+        foreach ($matches as $match) {
+            $url = monitor_polish_absolute_url($match[2]);
+            $title = clean_text($match[3]);
+
+            if ($url === '') {
+                continue;
+            }
+
+            if (!in_array($url, $detailUrls, true)) {
+                $detailUrls[] = $url;
+            }
+
+            if (monitor_polish_title_is_fuel_notice($title)) {
+                return fetch_monitor_polish_notice_detail($url, $title, $warnings);
+            }
+        }
+    }
+
+    foreach (array_slice($detailUrls, 0, 12) as $url) {
+        $notice = fetch_monitor_polish_notice_detail($url, null, $warnings);
+
+        if ($notice !== null) {
+            return $notice;
+        }
+    }
+
+    $warnings[] = 'Na liscie Monitor Polski nie znaleziono najnowszego aktu o maksymalnej cenie paliw.';
+    return null;
+}
+
+function monitor_polish_title_points_to_published_date(string $title, DateTimeImmutable $publishedDate): bool
+{
+    $day = (int) $publishedDate->format('j');
+    $month = polish_month_genitive((int) $publishedDate->format('n'));
+    $year = $publishedDate->format('Y');
+
+    return text_contains_ci($title, 'z dnia ' . $day . ' ' . $month . ' ' . $year);
+}
+
+function fetch_monitor_polish_fuel_notice_for_published_date(DateTimeImmutable $publishedDate, array &$warnings): ?array
+{
+    $listingHtml = http_get_light(monitor_polish_source_url());
+
+    if (!is_string($listingHtml) || trim($listingHtml) === '') {
+        $warnings[] = 'Nie udalo sie pobrac listy aktow z Monitor Polski.';
+        return null;
+    }
+
+    $detailUrls = [];
+
+    if (preg_match_all('/<a\b[^>]*href=("|\')(\/MP\/[0-9]{4}\/[0-9]+)\1[^>]*>(.*?)<\/a>/isu', $listingHtml, $matches, PREG_SET_ORDER) > 0) {
+        foreach ($matches as $match) {
+            $url = monitor_polish_absolute_url($match[2]);
+            $title = clean_text($match[3]);
+
+            if ($url === '') {
+                continue;
+            }
+
+            if (!in_array($url, $detailUrls, true)) {
+                $detailUrls[] = $url;
+            }
+
+            if (
+                monitor_polish_title_is_fuel_notice($title)
+                && monitor_polish_title_points_to_published_date($title, $publishedDate)
+            ) {
+                $notice = fetch_monitor_polish_notice_detail($url, $title, $warnings);
+
+                if (
+                    is_array($notice)
+                    && ($notice['publishedDateIso'] ?? null) === $publishedDate->format('Y-m-d')
+                ) {
+                    return $notice;
+                }
+            }
+        }
+    }
+
+    foreach (array_slice($detailUrls, 0, 12) as $url) {
+        $notice = fetch_monitor_polish_notice_detail($url, null, $warnings);
+
+        if (
+            is_array($notice)
+            && ($notice['publishedDateIso'] ?? null) === $publishedDate->format('Y-m-d')
+        ) {
+            return $notice;
+        }
+    }
+
+    return null;
+}
+
+function pdf_unicode_char_from_hex(string $hex): string
+{
+    $hex = ltrim($hex, '0');
+
+    if ($hex === '') {
+        return '';
+    }
+
+    $codepoint = hexdec($hex);
+
+    if ($codepoint <= 0) {
+        return '';
+    }
+
+    return html_entity_decode('&#x' . strtoupper(dechex($codepoint)) . ';', ENT_NOQUOTES, 'UTF-8');
+}
+
+function pdf_decoded_streams(string $pdf): array
+{
+    if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf, $matches) <= 0) {
+        return [];
+    }
+
+    $streams = [];
+
+    foreach ($matches[1] as $stream) {
+        $decoded = @gzuncompress($stream);
+
+        if ($decoded === false) {
+            $decoded = @gzdecode($stream);
+        }
+
+        if ($decoded === false) {
+            $decoded = @gzinflate($stream);
+        }
+
+        if (is_string($decoded) && $decoded !== '') {
+            $streams[] = $decoded;
+        }
+    }
+
+    return $streams;
+}
+
+function pdf_extract_unicode_map(array $streams): array
+{
+    $map = [];
+
+    foreach ($streams as $stream) {
+        if (!str_contains($stream, 'beginbf')) {
+            continue;
+        }
+
+        if (preg_match_all('/beginbfchar\s*(.*?)\s*endbfchar/s', $stream, $blocks) > 0) {
+            foreach ($blocks[1] as $block) {
+                if (preg_match_all('/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/', $block, $pairs, PREG_SET_ORDER) <= 0) {
+                    continue;
+                }
+
+                foreach ($pairs as $pair) {
+                    $map[strtoupper($pair[1])] = pdf_unicode_char_from_hex($pair[2]);
+                }
+            }
+        }
+
+        if (preg_match_all('/beginbfrange\s*(.*?)\s*endbfrange/s', $stream, $blocks) <= 0) {
+            continue;
+        }
+
+        foreach ($blocks[1] as $block) {
+            if (preg_match_all('/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/', $block, $ranges, PREG_SET_ORDER) > 0) {
+                foreach ($ranges as $range) {
+                    $from = hexdec($range[1]);
+                    $to = hexdec($range[2]);
+                    $dest = hexdec($range[3]);
+                    $width = strlen($range[1]);
+
+                    for ($code = $from; $code <= $to; $code++) {
+                        $sourceKey = strtoupper(str_pad(strtoupper(dechex($code)), $width, '0', STR_PAD_LEFT));
+                        $map[$sourceKey] = pdf_unicode_char_from_hex(strtoupper(dechex($dest + ($code - $from))));
+                    }
+                }
+            }
+
+            if (preg_match_all('/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[(.*?)\]/s', $block, $arrayRanges, PREG_SET_ORDER) <= 0) {
+                continue;
+            }
+
+            foreach ($arrayRanges as $range) {
+                if (preg_match_all('/<([0-9A-Fa-f]+)>/', $range[3], $targets) <= 0) {
+                    continue;
+                }
+
+                $from = hexdec($range[1]);
+                $width = strlen($range[1]);
+
+                foreach ($targets[1] as $offset => $targetHex) {
+                    $sourceKey = strtoupper(str_pad(strtoupper(dechex($from + $offset)), $width, '0', STR_PAD_LEFT));
+                    $map[$sourceKey] = pdf_unicode_char_from_hex($targetHex);
+                }
+            }
+        }
+    }
+
+    return $map;
+}
+
+function pdf_unescape_literal_string(string $value): string
+{
+    $output = '';
+    $length = strlen($value);
+
+    for ($i = 0; $i < $length; $i++) {
+        $char = $value[$i];
+
+        if ($char !== '\\') {
+            $output .= $char;
+            continue;
+        }
+
+        $i++;
+
+        if ($i >= $length) {
+            break;
+        }
+
+        $escaped = $value[$i];
+
+        if ($escaped === 'n') {
+            $output .= "\n";
+        } elseif ($escaped === 'r') {
+            $output .= "\r";
+        } elseif ($escaped === 't') {
+            $output .= "\t";
+        } elseif ($escaped === 'b') {
+            $output .= "\b";
+        } elseif ($escaped === 'f') {
+            $output .= "\f";
+        } elseif ($escaped >= '0' && $escaped <= '7') {
+            $octal = $escaped;
+
+            for ($j = 0; $j < 2 && $i + 1 < $length && $value[$i + 1] >= '0' && $value[$i + 1] <= '7'; $j++) {
+                $i++;
+                $octal .= $value[$i];
+            }
+
+            $output .= chr(octdec($octal));
+        } else {
+            $output .= $escaped;
+        }
+    }
+
+    return $output;
+}
+
+function pdf_text_from_hex_string(string $hex, array $unicodeMap): string
+{
+    $hex = preg_replace('/\s+/', '', $hex) ?? $hex;
+    $output = '';
+    $length = strlen($hex);
+
+    for ($i = 0; $i < $length;) {
+        $chunk = substr($hex, $i, 4);
+        $key = strtoupper($chunk);
+
+        if (strlen($chunk) === 4 && isset($unicodeMap[$key])) {
+            $output .= $unicodeMap[$key];
+            $i += 4;
+            continue;
+        }
+
+        if (strlen($chunk) === 4 && hexdec($chunk) > 255) {
+            $output .= pdf_unicode_char_from_hex($chunk);
+            $i += 4;
+            continue;
+        }
+
+        $byte = substr($hex, $i, 2);
+
+        if (strlen($byte) < 2) {
+            break;
+        }
+
+        $value = hexdec($byte);
+
+        if ($value >= 32 && $value < 127) {
+            $output .= chr($value);
+        }
+
+        $i += 2;
+    }
+
+    return $output;
+}
+
+function pdf_extract_text(string $pdf): string
+{
+    $streams = pdf_decoded_streams($pdf);
+
+    if ($streams === []) {
+        return '';
+    }
+
+    $unicodeMap = pdf_extract_unicode_map($streams);
+    $text = '';
+
+    foreach ($streams as $stream) {
+        if (!str_contains($stream, ' TJ') && !str_contains($stream, ' Tj')) {
+            continue;
+        }
+
+        if (preg_match_all('/\[(.*?)\]\s*TJ/s', $stream, $arrays) > 0) {
+            foreach ($arrays[1] as $arrayBody) {
+                if (preg_match_all('/<([0-9A-Fa-f\s]+)>|\((?:\\\\.|[^\\\\)])*\)/s', $arrayBody, $tokens, PREG_SET_ORDER) <= 0) {
+                    continue;
+                }
+
+                foreach ($tokens as $token) {
+                    if (isset($token[1]) && $token[1] !== '') {
+                        $text .= pdf_text_from_hex_string($token[1], $unicodeMap);
+                    } else {
+                        $text .= pdf_unescape_literal_string(substr($token[0], 1, -1));
+                    }
+                }
+
+                $text .= "\n";
+            }
+        }
+
+        if (preg_match_all('/<([0-9A-Fa-f\s]+)>\s*Tj|\((?:\\\\.|[^\\\\)])*\)\s*Tj/s', $stream, $items, PREG_SET_ORDER) <= 0) {
+            continue;
+        }
+
+        foreach ($items as $item) {
+            if (isset($item[1]) && $item[1] !== '') {
+                $text .= pdf_text_from_hex_string($item[1], $unicodeMap);
+            } else {
+                $end = strrpos($item[0], ')');
+                $text .= $end === false ? '' : pdf_unescape_literal_string(substr($item[0], 1, $end - 1));
+            }
+
+            $text .= "\n";
+        }
+    }
+
+    return trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+}
+
+function parse_monitor_polish_pdf_prices(string $pdf): array
+{
+    $text = pdf_extract_text($pdf);
+
+    if ($text === '') {
+        return [];
+    }
+
+    $patterns = [
+        'PB95' => '/benzyn[^;]{0,180}\b95\b[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+[.,][0-9]{2})\s*z/i',
+        'PB98' => '/benzyn[^;]{0,180}\b98\b[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+[.,][0-9]{2})\s*z/i',
+        'ON' => '/oleju[^;]{0,260}powi[^;]{0,160}wynosi\s*([0-9]+[.,][0-9]{2})\s*z/i',
+    ];
+
+    $prices = [];
+
+    foreach ($patterns as $fuel => $pattern) {
+        if (preg_match($pattern, $text, $match) !== 1) {
+            continue;
+        }
+
+        $value = parse_price_value($match[1]);
+
+        if ($value !== null) {
+            $prices[$fuel] = $value;
+        }
+    }
+
+    return $prices;
+}
+
+function monitor_polish_fallback_announcement(DateTimeImmutable $targetDate, array &$warnings): ?array
+{
+    $expectedPublishedDate = $targetDate->modify('-1 day');
+    $notice = fetch_monitor_polish_fuel_notice_for_published_date($expectedPublishedDate, $warnings);
+
+    if ($notice === null) {
+        return null;
+    }
+
+    $publishedIso = $notice['publishedDateIso'] ?? null;
+    $expectedPublishedIso = $expectedPublishedDate->format('Y-m-d');
+
+    if (is_string($publishedIso) && $publishedIso !== '' && $publishedIso !== $expectedPublishedIso) {
+        $warnings[] = 'Najnowszy akt Monitor Polski nie odpowiada oczekiwanej dacie publikacji.';
+        return null;
+    }
+
+    $pdfUrl = $notice['pdfUrl'] ?? null;
+
+    if (!is_string($pdfUrl) || $pdfUrl === '') {
+        return null;
+    }
+
+    $pdf = http_get_binary($pdfUrl);
+
+    if (!is_string($pdf) || $pdf === '') {
+        $warnings[] = 'Nie udalo sie pobrac PDF z Monitor Polski.';
+        return null;
+    }
+
+    $prices = parse_monitor_polish_pdf_prices($pdf);
+
+    if ($prices === []) {
+        $warnings[] = 'PDF z Monitor Polski zostal pobrany, ale nie udalo sie odczytac cen paliw.';
+        return null;
+    }
+
+    return [
+        'title' => (string) ($notice['title'] ?? 'Obwieszczenie Monitor Polski'),
+        'publishedDate' => $notice['publishedDate'] ?? null,
+        'publishedDateIso' => $notice['publishedDateIso'] ?? null,
+        'intro' => null,
+        'url' => (string) ($notice['url'] ?? monitor_polish_source_url()),
+        'source' => 'monitor_polish',
+        'sourcePdfUrl' => $pdfUrl,
+        'prices' => $prices,
+        'effectiveFromIso' => $targetDate->format('Y-m-d'),
+        'effectiveToIso' => $targetDate->format('Y-m-d'),
+        'effectiveLabel' => $targetDate->format('d.m.Y'),
+        'effectiveDateWasParsed' => true,
+    ];
+}
+
+function announcements_have_prices_for_date(array $announcements, DateTimeImmutable $targetDate): bool
+{
+    foreach ($announcements as $announcement) {
+        if (is_array($announcement) && announcement_matches_effective_date($announcement, $targetDate)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function append_monitor_polish_fallback_announcement(array $announcements, DateTimeImmutable $targetDate): array
+{
+    if (announcements_have_prices_for_date($announcements, $targetDate)) {
+        return $announcements;
+    }
+
+    $warnings = [];
+    $announcement = monitor_polish_fallback_announcement($targetDate, $warnings);
+
+    if ($announcement === null) {
+        return $announcements;
+    }
+
+    $targetIso = $targetDate->format('Y-m-d');
+    $sourcePdfUrl = $announcement['sourcePdfUrl'] ?? null;
+    $url = $announcement['url'] ?? null;
+    $filtered = [];
+
+    foreach ($announcements as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $sameUrl = is_string($url) && $url !== '' && ($item['url'] ?? null) === $url;
+        $samePdf = is_string($sourcePdfUrl) && $sourcePdfUrl !== '' && ($item['sourcePdfUrl'] ?? null) === $sourcePdfUrl;
+        $sameTargetFallback = ($item['source'] ?? null) === 'monitor_polish'
+            && ($item['effectiveFromIso'] ?? null) === $targetIso;
+
+        if ($sameUrl || $samePdf || $sameTargetFallback) {
+            continue;
+        }
+
+        $filtered[] = $item;
+    }
+
+    $filtered[] = $announcement;
+    sort_announcements_by_effective_date($filtered);
+
+    return $filtered;
+}
+
+function sort_announcements_by_effective_date(array &$announcements): void
+{
+    usort($announcements, static function (array $left, array $right): int {
+        $leftSort = $left['effectiveFromIso'] ?? $left['publishedDateIso'] ?? '';
+        $rightSort = $right['effectiveFromIso'] ?? $right['publishedDateIso'] ?? '';
+        return strcmp((string) $rightSort, (string) $leftSort);
+    });
+}
+
+function rebuild_dashboard_price_fields(array $snapshot, array $announcements): array
+{
+    sort_announcements_by_effective_date($announcements);
+
+    $today = new DateTimeImmutable('today');
+    $now = new DateTimeImmutable('now');
+    $tomorrow = $today->modify('+1 day');
+
+    $currentAnnouncement = find_active_announcement($announcements, $today);
+
+    if ($currentAnnouncement === null && $announcements !== []) {
+        $currentAnnouncement = $announcements[0];
+    }
+
+    $previousAnnouncement = find_previous_announcement($announcements, $currentAnnouncement);
+    $yesterdayAnnouncement = find_active_announcement($announcements, $today->modify('-1 day'));
+    $tomorrowAnnouncement = find_active_announcement_strict($announcements, $tomorrow);
+
+    $fuelLabels = is_array($snapshot['fuelLabels'] ?? null) && $snapshot['fuelLabels'] !== []
+        ? $snapshot['fuelLabels']
+        : [
+            'PB95' => 'PB95',
+            'PB98' => 'PB98',
+            'ON' => 'ON',
+        ];
+
+    $lastMonthAnnouncements = filter_announcements_last_month($announcements, $now);
+    $lastMonthAnnouncements = deduplicate_announcements_by_effective_date($lastMonthAnnouncements);
+
+    $chartAnnouncements = array_map(static function (array $item): array {
+        $chartDateIso = announcement_chart_date_iso($item);
+
+        return [
+            'label' => $item['effectiveLabel'] ?? ($item['publishedDate'] ?? 'brak daty'),
+            'title' => $item['title'],
+            'effectiveFromIso' => $chartDateIso,
+            'effectiveToIso' => $item['effectiveToIso'] ?? null,
+            'publishedDateIso' => $item['publishedDateIso'] ?? null,
+            'prices' => [
+                'PB95' => $item['prices']['PB95'] ?? null,
+                'PB98' => $item['prices']['PB98'] ?? null,
+                'ON' => $item['prices']['ON'] ?? null,
+            ],
+        ];
+    }, $lastMonthAnnouncements);
+
+    $generatedAt = new DateTimeImmutable();
+
+    $snapshot['announcements'] = $announcements;
+    $snapshot['currentAnnouncement'] = $currentAnnouncement;
+    $snapshot['previousAnnouncement'] = $previousAnnouncement;
+    $snapshot['tomorrowAnnouncement'] = $tomorrowAnnouncement;
+    $snapshot['fuelLabels'] = $fuelLabels;
+    $snapshot['fuelCards'] = build_fuel_cards($fuelLabels, $currentAnnouncement, $yesterdayAnnouncement, $tomorrowAnnouncement);
+    $snapshot['dashboardData'] = [
+        'recentAnnouncements' => $chartAnnouncements,
+    ];
+    $snapshot['currentEffectiveLabel'] = $currentAnnouncement['effectiveLabel'] ?? 'dzisiaj';
+    $snapshot['tomorrowEffectiveLabel'] = $tomorrowAnnouncement['effectiveLabel'] ?? null;
+    $snapshot['lastDataUpdateLabel'] = $generatedAt->format('d.m.Y H:i');
+    $snapshot['lastDataUpdateDateLabel'] = $generatedAt->format('d.m.Y');
+    $snapshot['lastDataUpdateTimeLabel'] = $generatedAt->format('H:i');
+    $snapshot['generatedAtIso'] = $generatedAt->format(DateTimeInterface::ATOM);
+
+    return $snapshot;
+}
+
+function snapshot_with_monitor_polish_fallback(array $snapshot, DateTimeImmutable $targetDate): array
+{
+    if (dashboard_snapshot_has_prices_for_date($snapshot, $targetDate)) {
+        return $snapshot;
+    }
+
+    $warnings = [];
+    $announcement = monitor_polish_fallback_announcement($targetDate, $warnings);
+
+    if ($announcement === null) {
+        return $snapshot;
+    }
+
+    $announcements = is_array($snapshot['announcements'] ?? null) ? $snapshot['announcements'] : [];
+    $targetIso = $targetDate->format('Y-m-d');
+    $sourcePdfUrl = $announcement['sourcePdfUrl'] ?? null;
+    $url = $announcement['url'] ?? null;
+    $filtered = [];
+
+    foreach ($announcements as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $sameUrl = is_string($url) && $url !== '' && ($item['url'] ?? null) === $url;
+        $samePdf = is_string($sourcePdfUrl) && $sourcePdfUrl !== '' && ($item['sourcePdfUrl'] ?? null) === $sourcePdfUrl;
+        $sameTargetFallback = ($item['source'] ?? null) === 'monitor_polish'
+            && ($item['effectiveFromIso'] ?? null) === $targetIso;
+
+        if ($sameUrl || $samePdf || $sameTargetFallback) {
+            continue;
+        }
+
+        $filtered[] = $item;
+    }
+
+    $filtered[] = $announcement;
+    $snapshot = rebuild_dashboard_price_fields($snapshot, $filtered);
+    $snapshot['monitorPolishFallback'] = [
+        'usedAtIso' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
+        'targetDateIso' => $targetIso,
+        'url' => $announcement['url'] ?? null,
+        'pdfUrl' => $announcement['sourcePdfUrl'] ?? null,
+    ];
+
+    return $snapshot;
+}
+
+function parse_price_value(string $raw): ?float
+{
+    $normalized = str_replace(',', '.', preg_replace('/[^0-9,.-]/', '', $raw) ?? '');
+    if ($normalized === '' || !is_numeric($normalized)) {
+        return null;
+    }
+
+    return round((float) $normalized, 2);
+}
+
+function normalize_fuel_name(string $label): ?string
+{
+    $label = clean_text($label);
+    $label = function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label);
+
+    if (str_contains($label, 'benzyna 95')) {
+        return 'PB95';
+    }
+
+    if (str_contains($label, 'benzyna 98')) {
+        return 'PB98';
+    }
+
+    if (str_contains($label, 'olej napędowy') || str_contains($label, 'olej napedowy')) {
+        return 'ON';
+    }
+
+    if (str_contains($label, 'lpg') || str_contains($label, 'autogaz')) {
+        return 'LPG';
+    }
+
+    return null;
+}
+
+function parse_fuel_prices(string $html, ?string $intro = null): array
+{
+    $prices = [];
+
+    if (preg_match_all('/<li>\s*(.*?)\s*<\/li>/isu', $html, $items) > 0) {
+        foreach ($items[1] as $item) {
+            $line = clean_text($item);
+            $fuel = normalize_fuel_name($line);
+
+            if ($fuel === null) {
+                continue;
+            }
+
+            if (preg_match('/([0-9]+[.,][0-9]+)/u', $line, $match) === 1) {
+                $value = parse_price_value($match[1]);
+
+                if ($value !== null) {
+                    $prices[$fuel] = $value;
+                }
+            }
+        }
+    }
+
+    if ($prices !== [] || $intro === null) {
+        return $prices;
+    }
+
+    if (preg_match_all('/(benzyna\s*95|benzyna\s*98|olej napędowy|olej napedowy|lpg|autogaz)\s*[-–—]\s*([0-9]+[.,][0-9]+)/iu', $intro, $matches, PREG_SET_ORDER) > 0) {
+        foreach ($matches as $match) {
+            $fuel = normalize_fuel_name($match[1]);
+            $value = parse_price_value($match[2]);
+
+            if ($fuel !== null && $value !== null) {
+                $prices[$fuel] = $value;
+            }
+        }
+    }
+
+    return $prices;
+}
+
+function parse_iso_date(?string $raw): ?DateTimeImmutable
+{
+    if ($raw === null || trim($raw) === '') {
+        return null;
+    }
+
+    $date = DateTimeImmutable::createFromFormat('Y-m-d', trim($raw));
+    return $date instanceof DateTimeImmutable ? $date : null;
+}
+
+function parse_polish_date(?string $raw): ?DateTimeImmutable
+{
+    if ($raw === null) {
+        return null;
+    }
+
+    $date = DateTimeImmutable::createFromFormat('d.m.Y', trim($raw));
+    return $date instanceof DateTimeImmutable ? $date : null;
+}
+
+function parse_polish_textual_date(string $raw): ?DateTimeImmutable
+{
+    $raw = clean_text($raw);
+
+    if ($raw === '') {
+        return null;
+    }
+
+    $months = [
+        'stycznia' => 1,
+        'lutego' => 2,
+        'marca' => 3,
+        'kwietnia' => 4,
+        'maja' => 5,
+        'czerwca' => 6,
+        'lipca' => 7,
+        'sierpnia' => 8,
+        'września' => 9,
+        'wrzesnia' => 9,
+        'października' => 10,
+        'pazdziernika' => 10,
+        'listopada' => 11,
+        'grudnia' => 12,
+    ];
+
+    if (preg_match('/\b(\d{1,2})\s+([[:alpha:]ąćęłńóśźż]+)\s+(\d{4})\b/iu', $raw, $match) !== 1) {
+        return null;
+    }
+
+    $day = (int) $match[1];
+    $monthName = function_exists('mb_strtolower') ? mb_strtolower($match[2], 'UTF-8') : strtolower($match[2]);
+    $year = (int) $match[3];
+    $month = $months[$monthName] ?? null;
+
+    if ($month === null || !checkdate($month, $day, $year)) {
+        return null;
+    }
+
+    return new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+}
+
+function extract_effective_range(string $title, ?string $intro, string $html): array
+{
+    $haystack = clean_text($title . ' ' . ($intro ?? '') . ' ' . $html);
+
+    $ranges = gov_numeric_date_ranges($haystack);
+    if ($ranges !== []) {
+        $range = $ranges[0];
+        $from = $range['from'];
+        $to = $range['to'];
+
+        return [
+            'from' => $from,
+            'to' => $to,
+            'label' => $from->format('d.m') . '-' . $to->format('d.m.Y'),
+            'parsed' => true,
+        ];
+    }
+
+    $date = parse_polish_textual_date($haystack);
+    if ($date instanceof DateTimeImmutable) {
+        return [
+            'from' => $date,
+            'to' => $date,
+            'label' => $date->format('d.m.Y'),
+            'parsed' => true,
+        ];
+    }
+
+    if (preg_match('/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/u', $haystack, $match) === 1) {
+        $date = parse_polish_date($match[1] . '.' . $match[2] . '.' . $match[3]);
+
+        if ($date instanceof DateTimeImmutable) {
+            return [
+                'from' => $date,
+                'to' => $date,
+                'label' => $date->format('d.m.Y'),
+                'parsed' => true,
+            ];
+        }
+    }
+
+    return [
+        'from' => null,
+        'to' => null,
+        'label' => null,
+        'parsed' => false,
+    ];
+}
+
+function fetch_fuel_listing_links(int $maxLinks, array &$warnings): array
+{
+    $links = [];
+    $maxPages = 8;
+
+    for ($page = 0; $page < $maxPages; $page++) {
+        $listingUrl = 'https://www.gov.pl/web/energia/wiadomosci?page=' . $page . '&size=10';
+        $listingHtml = http_get($listingUrl);
+
+        if ($listingHtml === null) {
+            if ($page === 0) {
+                $warnings[] = 'Nie udało się pobrać listy komunikatów z gov.pl.';
+            }
+
+            break;
+        }
+
+        preg_match_all('/href="(\/web\/energia\/maksymalna-cena-detaliczna-paliw[^"]+)"/i', $listingHtml, $matches);
+        $pageLinks = array_values(array_unique($matches[1] ?? []));
+
+        if ($pageLinks === []) {
+            if ($page > 0) {
+                break;
+            }
+
+            continue;
+        }
+
+        foreach ($pageLinks as $relativeUrl) {
+            $absolute = 'https://www.gov.pl' . $relativeUrl;
+
+            if (!in_array($absolute, $links, true)) {
+                $links[] = $absolute;
+            }
+
+            if (count($links) >= $maxLinks) {
+                break 2;
+            }
+        }
+    }
+
+    return $links;
+}
+
+function fetch_ministry_announcements(int $limit, array &$warnings): array
+{
+    $links = fetch_fuel_listing_links($limit, $warnings);
+    $announcements = [];
+
+    foreach ($links as $url) {
+        $html = http_get($url);
+
+        if ($html === null) {
+            continue;
+        }
+
+        $title = extract_match('/<h1[^>]*>(.*?)<\/h1>/isu', $html)
+            ?? extract_match('/<meta property="og:title" content="([^"]+)"/i', $html)
+            ?? 'Komunikat ministerstwa';
+
+        $publishedDate = extract_match('/<p class="event-date">([^<]+)<\/p>/i', $html);
+        $intro = extract_match('/<p class="intro">([^<]+)<\/p>/isu', $html)
+            ?? extract_match('/<meta name="description" content="([^"]+)"/i', $html);
+
+        $prices = parse_fuel_prices($html, $intro);
+
+        if ($prices === []) {
+            continue;
+        }
+
+        $effective = extract_effective_range($title, $intro, $html);
+        $publishedDateObj = parse_polish_date($publishedDate);
+        $effectiveDateWasParsed = ($effective['from'] ?? null) instanceof DateTimeImmutable;
+        $effectiveFrom = $effectiveDateWasParsed ? $effective['from'] : $publishedDateObj;
+        $effectiveTo = ($effective['to'] ?? null) instanceof DateTimeImmutable ? $effective['to'] : $effectiveFrom;
+        $effectiveLabel = is_string($effective['label'] ?? null) && $effective['label'] !== ''
+            ? $effective['label']
+            : ($effectiveFrom instanceof DateTimeImmutable ? $effectiveFrom->format('d.m.Y') : ($publishedDate ?: 'brak'));
+
+        $announcements[] = [
+            'title' => $title,
+            'publishedDate' => $publishedDate,
+            'publishedDateIso' => $publishedDateObj?->format('Y-m-d'),
+            'intro' => $intro,
+            'url' => $url,
+            'prices' => $prices,
+            'effectiveFromIso' => $effectiveFrom?->format('Y-m-d'),
+            'effectiveToIso' => $effectiveTo?->format('Y-m-d'),
+            'effectiveLabel' => $effectiveLabel,
+            'effectiveDateWasParsed' => $effectiveDateWasParsed,
+        ];
+    }
+
+    usort($announcements, static function (array $left, array $right): int {
+        $leftSort = $left['effectiveFromIso'] ?? $left['publishedDateIso'] ?? '';
+        $rightSort = $right['effectiveFromIso'] ?? $right['publishedDateIso'] ?? '';
+        return strcmp($rightSort, $leftSort);
+    });
+
+    if ($announcements === []) {
+        $warnings[] = 'Komunikaty zostały znalezione, ale nie udało się odczytać z nich cen.';
+    }
+
+    return $announcements;
+}
+
+function announcement_is_active_on_date(array $announcement, DateTimeImmutable $date): bool
+{
+    $from = parse_iso_date($announcement['effectiveFromIso'] ?? null);
+    $to = parse_iso_date($announcement['effectiveToIso'] ?? null);
+
+    if (!$from instanceof DateTimeImmutable) {
+        return false;
+    }
+
+    $to ??= $from;
+    $stamp = $date->format('Y-m-d');
+
+    return $stamp >= $from->format('Y-m-d') && $stamp <= $to->format('Y-m-d');
+}
+
+function find_active_announcement_strict(array $announcements, DateTimeImmutable $date): ?array
+{
+    foreach ($announcements as $announcement) {
+        if (announcement_is_active_on_date($announcement, $date)) {
+            return $announcement;
+        }
+    }
+
+    return null;
+}
+
+function find_active_announcement(array $announcements, DateTimeImmutable $date): ?array
+{
+    $strict = find_active_announcement_strict($announcements, $date);
+
+    if ($strict !== null) {
+        return $strict;
+    }
+
+    $target = $date->format('Y-m-d');
+
+    foreach ($announcements as $announcement) {
+        $fromIso = $announcement['effectiveFromIso'] ?? '';
+
+        if ($fromIso !== '' && $fromIso <= $target) {
+            return $announcement;
+        }
+    }
+
+    return $announcements[0] ?? null;
+}
+
+function find_previous_announcement(array $announcements, ?array $current): ?array
+{
+    if ($current === null) {
+        return $announcements[1] ?? null;
+    }
+
+    $currentFrom = $current['effectiveFromIso'] ?? '';
+
+    if ($currentFrom === '') {
+        return null;
+    }
+
+    foreach ($announcements as $announcement) {
+        $fromIso = $announcement['effectiveFromIso'] ?? '';
+
+        if ($fromIso !== '' && $fromIso < $currentFrom) {
+            return $announcement;
+        }
+    }
+
+    return null;
+}
+
+function announcement_chart_date_iso(array $announcement): ?string
+{
+    $hasTrustedEffectiveDate = ($announcement['effectiveDateWasParsed'] ?? false) === true
+        || ($announcement['source'] ?? null) === 'monitor_polish';
+
+    if (!$hasTrustedEffectiveDate) {
+        return null;
+    }
+
+    $date = $announcement['effectiveFromIso'] ?? null;
+
+    if (!is_string($date) || trim($date) === '') {
+        return null;
+    }
+
+    return $date;
+}
+
+function filter_announcements_last_month(array $announcements, DateTimeImmutable $now): array
+{
+    $today = $now->format('Y-m-d');
+    $threshold = $now->modify('-1 month')->format('Y-m-d');
+
+    $filtered = array_values(array_filter($announcements, static function (array $announcement) use ($threshold, $today): bool {
+        $from = announcement_chart_date_iso($announcement);
+
+        if ($from === null) {
+            return false;
+        }
+
+        return $from >= $threshold && $from <= $today;
+    }));
+
+    usort($filtered, static function (array $left, array $right): int {
+        $leftDate = announcement_chart_date_iso($left) ?? '';
+        $rightDate = announcement_chart_date_iso($right) ?? '';
+        $dateCompare = strcmp($leftDate, $rightDate);
+
+        if ($dateCompare !== 0) {
+            return $dateCompare;
+        }
+
+        return strcmp($left['publishedDateIso'] ?? '', $right['publishedDateIso'] ?? '');
+    });
+
+    return $filtered;
+}
+
+function deduplicate_announcements_by_effective_date(array $announcements): array
+{
+    $byDate = [];
+
+    foreach ($announcements as $announcement) {
+        $date = announcement_chart_date_iso($announcement);
+
+        if ($date === null) {
+            continue;
+        }
+
+        if (!isset($byDate[$date])) {
+            $byDate[$date] = $announcement;
+            continue;
+        }
+
+        $existingPublished = $byDate[$date]['publishedDateIso'] ?? '';
+        $newPublished = $announcement['publishedDateIso'] ?? '';
+
+        if ($newPublished >= $existingPublished) {
+            $byDate[$date] = $announcement;
+        }
+    }
+
+    ksort($byDate);
+
+    return array_values($byDate);
+}
+
+function format_price(?float $value): string
+{
+    if ($value === null) {
+        return 'brak danych';
+    }
+
+    return number_format($value, 2, ',', ' ') . ' zł/l';
+}
+
+function format_delta(?float $value): string
+{
+    if ($value === null) {
+        return 'brak';
+    }
+
+    $prefix = $value > 0 ? '+' : '';
+    return $prefix . number_format($value, 2, ',', ' ') . ' zł/l';
+}
+
+function delta_direction(?float $value): string
+{
+    if ($value === null || abs($value) < 0.0001) {
+        return 'neutral';
+    }
+
+    return $value > 0 ? 'up' : 'down';
+}
+
+function delta_class(?float $value): string
+{
+    return match (delta_direction($value)) {
+        'up' => 'delta-up',
+        'down' => 'delta-down',
+        default => 'delta-neutral',
+    };
+}
+
+function delta_arrow(?float $value): string
+{
+    return match (delta_direction($value)) {
+        'up' => '↑',
+        'down' => '↓',
+        default => '→',
+    };
+}
+
+function build_fuel_cards(array $fuelLabels, ?array $currentAnnouncement, ?array $yesterdayAnnouncement, ?array $tomorrowAnnouncement): array
+{
+    $cards = [];
+
+    foreach ($fuelLabels as $code => $label) {
+        $todayPrice = $currentAnnouncement['prices'][$code] ?? null;
+        $previousPrice = $yesterdayAnnouncement['prices'][$code] ?? null;
+        $tomorrowPrice = $tomorrowAnnouncement['prices'][$code] ?? null;
+
+        $todayDelta = ($todayPrice !== null && $previousPrice !== null) ? round($todayPrice - $previousPrice, 2) : null;
+        $tomorrowDelta = ($todayPrice !== null && $tomorrowPrice !== null) ? round($tomorrowPrice - $todayPrice, 2) : null;
+
+        $cards[] = [
+            'code' => $code,
+            'label' => $label,
+            'todayPrice' => $todayPrice,
+            'todayDelta' => $todayDelta,
+            'tomorrowPrice' => $tomorrowPrice,
+            'tomorrowDelta' => $tomorrowDelta,
+        ];
+    }
+
+    return $cards;
+}
 
 function build_dashboard_payload(array $previousSnapshot = []): array
 {
+    $warnings = [];
+    $today = new DateTimeImmutable('today');
+    $now = new DateTimeImmutable('now');
+    $tomorrow = $today->modify('+1 day');
+
     $previousPromotionItems = is_array($previousSnapshot['stationPromotions']['items'] ?? null)
         ? $previousSnapshot['stationPromotions']['items']
         : [];
 
+    $announcements = fetch_ministry_announcements(80, $warnings);
     $stationPromotions = fetch_station_promotions($previousPromotionItems);
+    $announcements = append_monitor_polish_fallback_announcement($announcements, $today);
+    $announcements = append_monitor_polish_fallback_announcement($announcements, $tomorrow);
+
+    $currentAnnouncement = find_active_announcement($announcements, $today);
+    $previousAnnouncement = find_previous_announcement($announcements, $currentAnnouncement);
+    $yesterdayAnnouncement = find_active_announcement($announcements, $today->modify('-1 day'));
+
+    $tomorrowAnnouncement = find_active_announcement_strict($announcements, $tomorrow);
+
+    $lastMonthAnnouncements = filter_announcements_last_month($announcements, $now);
+    $lastMonthAnnouncements = deduplicate_announcements_by_effective_date($lastMonthAnnouncements);
+
+    if ($currentAnnouncement === null && $announcements !== []) {
+        $currentAnnouncement = $announcements[0];
+    }
+
+    $fuelLabels = [
+        'PB95' => 'PB95',
+        'PB98' => 'PB98',
+        'ON' => 'ON',
+    ];
+
+    $fuelCards = build_fuel_cards($fuelLabels, $currentAnnouncement, $yesterdayAnnouncement, $tomorrowAnnouncement);
+
+    $chartAnnouncements = array_map(static function (array $item): array {
+        $chartDateIso = announcement_chart_date_iso($item);
+
+        return [
+            'label' => $item['effectiveLabel'] ?? ($item['publishedDate'] ?? 'brak daty'),
+            'title' => $item['title'],
+            'effectiveFromIso' => $chartDateIso,
+            'effectiveToIso' => $item['effectiveToIso'] ?? null,
+            'publishedDateIso' => $item['publishedDateIso'] ?? null,
+            'prices' => [
+                'PB95' => $item['prices']['PB95'] ?? null,
+                'PB98' => $item['prices']['PB98'] ?? null,
+                'ON' => $item['prices']['ON'] ?? null,
+            ],
+        ];
+    }, $lastMonthAnnouncements);
 
     $generatedAt = new DateTimeImmutable();
 
     return [
-        'warnings' => [],
+        'warnings' => array_values(array_unique($warnings)),
+        'announcements' => $announcements,
+        'currentAnnouncement' => $currentAnnouncement,
+        'previousAnnouncement' => $previousAnnouncement,
+        'tomorrowAnnouncement' => $tomorrowAnnouncement,
         'stationPromotions' => $stationPromotions,
+        'fuelLabels' => $fuelLabels,
+        'fuelCards' => $fuelCards,
+        'dashboardData' => [
+            'recentAnnouncements' => $chartAnnouncements,
+        ],
+        'currentEffectiveLabel' => $currentAnnouncement['effectiveLabel'] ?? 'dzisiaj',
+        'tomorrowEffectiveLabel' => $tomorrowAnnouncement['effectiveLabel'] ?? null,
         'lastDataUpdateLabel' => $generatedAt->format('d.m.Y H:i'),
         'lastDataUpdateDateLabel' => $generatedAt->format('d.m.Y'),
         'lastDataUpdateTimeLabel' => $generatedAt->format('H:i'),
@@ -2359,15 +4509,32 @@ function build_dashboard_payload(array $previousSnapshot = []): array
 function empty_dashboard_snapshot(): array
 {
     return [
-        'warnings' => [],
+        'warnings' => [
+            'Brak zapisanego snapshotu. Dane zostaną pobrane dopiero po uruchomieniu crona z flagą --refresh-cache albo po kliknięciu przycisku odświeżania.',
+        ],
+        'announcements' => [],
+        'currentAnnouncement' => null,
+        'previousAnnouncement' => null,
+        'tomorrowAnnouncement' => null,
         'stationPromotions' => [
             'url' => station_promotions_source_url(),
             'items' => [],
             'warnings' => [],
-            'warning' => 'Brak zapisanego snapshotu promocji. Uruchom odświeżanie, żeby pobrać dane.',
+            'warning' => 'Brak zapisanego snapshotu promocji ze stacji.',
             'fetchedAtLabel' => 'brak danych',
             'sourceMode' => 'empty_snapshot',
         ],
+        'fuelLabels' => [
+            'PB95' => 'PB95',
+            'PB98' => 'PB98',
+            'ON' => 'ON',
+        ],
+        'fuelCards' => [],
+        'dashboardData' => [
+            'recentAnnouncements' => [],
+        ],
+        'currentEffectiveLabel' => 'brak danych',
+        'tomorrowEffectiveLabel' => 'brak danych',
         'lastDataUpdateLabel' => 'brak danych',
         'lastDataUpdateDateLabel' => 'brak danych',
         'lastDataUpdateTimeLabel' => null,
@@ -2379,10 +4546,33 @@ function refresh_dashboard_snapshot_for_target(?DateTimeImmutable $refreshTarget
 {
     $previousSnapshot = load_dashboard_snapshot();
     $freshSnapshot = build_dashboard_payload(is_array($previousSnapshot) ? $previousSnapshot : []);
+    $refreshTargetArticle = null;
+    $freshSnapshotHasTargetDate = true;
 
-    $hasPromotions = !empty($freshSnapshot['stationPromotions']['items']);
+    if ($refreshTargetDate instanceof DateTimeImmutable) {
+        $freshSnapshotHasTargetDate = dashboard_snapshot_has_prices_for_date($freshSnapshot, $refreshTargetDate);
 
-    if ($hasPromotions) {
+        if (!$freshSnapshotHasTargetDate) {
+            $refreshTargetArticle = find_expected_fuel_update_article($refreshTargetDate);
+
+            if ($refreshTargetArticle === null) {
+                $freshSnapshotHasTargetDate = true;
+            }
+        }
+    }
+
+    if ($refreshTargetDate instanceof DateTimeImmutable && $refreshTargetArticle !== null && !$freshSnapshotHasTargetDate) {
+        $fallbackSnapshot = snapshot_with_monitor_polish_fallback($freshSnapshot, $refreshTargetDate);
+
+        if (dashboard_snapshot_has_prices_for_date($fallbackSnapshot, $refreshTargetDate)) {
+            $freshSnapshot = $fallbackSnapshot;
+            $freshSnapshotHasTargetDate = true;
+        } else {
+            $freshSnapshot = $fallbackSnapshot;
+        }
+    }
+
+    if (!empty($freshSnapshot['announcements']) && $freshSnapshotHasTargetDate) {
         $saveOk = save_dashboard_snapshot($freshSnapshot);
 
         if ($saveOk) {
@@ -2393,10 +4583,21 @@ function refresh_dashboard_snapshot_for_target(?DateTimeImmutable $refreshTarget
             $snapshot = is_array($existingSnapshot) ? $existingSnapshot : $freshSnapshot;
             $refreshStatus = 'save_failed';
         }
+    } elseif (!empty($freshSnapshot['announcements'])) {
+        $existingSnapshot = load_dashboard_snapshot();
+
+        if (is_array($existingSnapshot)) {
+            $snapshot = $existingSnapshot;
+            $refreshStatus = 'target_missing_existing_kept';
+        } else {
+            $saveOk = save_dashboard_snapshot($freshSnapshot);
+            $snapshot = $freshSnapshot;
+            $refreshStatus = $saveOk ? 'target_missing_saved' : 'target_missing_save_failed';
+        }
     } else {
         $existingSnapshot = load_dashboard_snapshot();
 
-        if (is_array($existingSnapshot) && !empty($existingSnapshot['stationPromotions']['items'])) {
+        if (is_array($existingSnapshot)) {
             $snapshot = $existingSnapshot;
             $refreshStatus = 'failed_existing_kept';
         } else {
@@ -2409,19 +4610,253 @@ function refresh_dashboard_snapshot_for_target(?DateTimeImmutable $refreshTarget
     return [
         'snapshot' => $snapshot,
         'status' => $refreshStatus,
-        'hasTargetDate' => true,
+        'hasTargetDate' => $freshSnapshotHasTargetDate,
     ];
 }
 
 
 
+function handle_auto_refresh_probe_request(): void
+{
+    $targetDate = new DateTimeImmutable('tomorrow');
+    $targetIso = $targetDate->format('Y-m-d');
+    $snapshot = load_dashboard_snapshot();
+
+    if (is_array($snapshot) && dashboard_snapshot_has_prices_for_date($snapshot, $targetDate)) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'up_to_date',
+            'updateAvailable' => false,
+            'loading' => false,
+            'reload' => true,
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $loading = auto_refresh_loading_status($targetDate);
+
+    if (!empty($loading['active']) && (string) ($loading['reason'] ?? '') === 'refresh_state') {
+        send_json_response([
+            'ok' => true,
+            'status' => 'refresh_busy',
+            'updateAvailable' => true,
+            'loading' => true,
+            'reload' => false,
+            'retryAfterSeconds' => max(1, (int) ($loading['remainingSeconds'] ?? 8)),
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $probeBusy = auto_refresh_probe_busy_status($targetDate);
+
+    if (!empty($probeBusy['active'])) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'probe_busy',
+            'updateAvailable' => false,
+            'loading' => false,
+            'reload' => false,
+            'retryAfterSeconds' => max(1, (int) ($probeBusy['remainingSeconds'] ?? 6)),
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $article = find_expected_fuel_update_article_cached($targetDate);
+
+    if ($article === null) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'no_update',
+            'updateAvailable' => false,
+            'loading' => false,
+            'reload' => false,
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $loading = auto_refresh_loading_status($targetDate);
+
+    if (!empty($loading['active'])) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'refresh_busy',
+            'updateAvailable' => true,
+            'loading' => true,
+            'reload' => false,
+            'retryAfterSeconds' => max(1, (int) ($loading['remainingSeconds'] ?? 8)),
+            'targetDateIso' => $targetIso,
+            'articleTitle' => (string) ($article['title'] ?? ''),
+        ]);
+    }
+
+    $throttle = auto_refresh_throttle_status($targetDate);
+
+    if (!empty($throttle['active'])) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'auto_throttled',
+            'updateAvailable' => true,
+            'loading' => false,
+            'reload' => false,
+            'retryAfterSeconds' => max(1, (int) ($throttle['remainingSeconds'] ?? 30)),
+            'targetDateIso' => $targetIso,
+            'articleTitle' => (string) ($article['title'] ?? ''),
+        ]);
+    }
+
+    send_json_response([
+        'ok' => true,
+        'status' => 'update_available',
+        'updateAvailable' => true,
+        'loading' => false,
+        'reload' => false,
+        'retryAfterSeconds' => auto_refresh_expected_duration_seconds(),
+        'targetDateIso' => $targetIso,
+        'articleTitle' => (string) ($article['title'] ?? ''),
+    ]);
+}
 
 
 
+function handle_auto_refresh_request(): void
+{
+    $targetDate = new DateTimeImmutable('tomorrow');
+    $targetIso = $targetDate->format('Y-m-d');
+
+    if (PHP_SAPI !== 'cli' && function_exists('ignore_user_abort')) {
+        @ignore_user_abort(true);
+    }
+
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(180);
+    }
+
+    $snapshot = load_dashboard_snapshot();
+
+    if (is_array($snapshot) && dashboard_snapshot_has_prices_for_date($snapshot, $targetDate)) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'up_to_date',
+            'reload' => true,
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $article = find_expected_fuel_update_article_cached($targetDate);
+
+    if ($article === null) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'no_update',
+            'reload' => false,
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $loading = auto_refresh_loading_status($targetDate);
+
+    if (!empty($loading['active'])) {
+        send_json_response([
+            'ok' => true,
+            'status' => 'refresh_busy',
+            'reload' => false,
+            'retryAfterSeconds' => max(1, (int) ($loading['remainingSeconds'] ?? 8)),
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $refreshLock = acquire_dashboard_refresh_lock(false);
+
+    if (!is_resource($refreshLock)) {
+        $loading = auto_refresh_loading_status($targetDate);
+
+        send_json_response([
+            'ok' => true,
+            'status' => 'refresh_busy',
+            'reload' => false,
+            'retryAfterSeconds' => max(1, (int) ($loading['remainingSeconds'] ?? 8)),
+            'targetDateIso' => $targetIso,
+        ]);
+    }
+
+    $payload = null;
+    $loadingMarked = false;
+
+    try {
+        $snapshot = load_dashboard_snapshot();
+
+        if (is_array($snapshot) && dashboard_snapshot_has_prices_for_date($snapshot, $targetDate)) {
+            $payload = [
+                'ok' => true,
+                'status' => 'up_to_date',
+                'reload' => true,
+                'targetDateIso' => $targetIso,
+            ];
+        } else {
+            $throttle = auto_refresh_throttle_claim($targetDate);
+
+            if (empty($throttle['allowed'])) {
+                $payload = [
+                    'ok' => true,
+                    'status' => 'auto_throttled',
+                    'reload' => false,
+                    'retryAfterSeconds' => max(1, (int) ($throttle['remainingSeconds'] ?? 30)),
+                    'targetDateIso' => $targetIso,
+                ];
+            } else {
+                auto_refresh_mark_loading($targetDate);
+                $loadingMarked = true;
+                $result = refresh_dashboard_snapshot_for_target($targetDate);
+                $resultSnapshot = is_array($result['snapshot'] ?? null) ? $result['snapshot'] : [];
+                $hasTargetDate = dashboard_snapshot_has_prices_for_date($resultSnapshot, $targetDate);
+
+                $payload = [
+                    'ok' => $hasTargetDate,
+                    'status' => $hasTargetDate ? (string) ($result['status'] ?? 'fresh_saved') : 'no_update',
+                    'reload' => $hasTargetDate,
+                    'targetDateIso' => $targetIso,
+                ];
+
+                if (!$hasTargetDate) {
+                    $payload['retryAfterSeconds'] = 30;
+                }
+            }
+        }
+    } finally {
+        if ($loadingMarked) {
+            auto_refresh_clear_loading($targetDate);
+        }
+
+        release_dashboard_refresh_lock($refreshLock);
+    }
+
+    send_json_response($payload ?? [
+        'ok' => false,
+        'status' => 'unknown',
+        'reload' => false,
+        'targetDateIso' => $targetIso,
+    ]);
+}
+
+
+
+$isAutoRefreshProbeRequest = PHP_SAPI !== 'cli' && isset($_GET['probe_update']) && $_GET['probe_update'] === '1';
+$isAutoRefreshRequest = PHP_SAPI !== 'cli' && isset($_GET['auto_refresh']) && $_GET['auto_refresh'] === '1';
+
+if ($isAutoRefreshProbeRequest) {
+    handle_auto_refresh_probe_request();
+}
+
+if ($isAutoRefreshRequest) {
+    handle_auto_refresh_request();
+}
 
 $isCronRefresh = cli_has_flag('--refresh-cache');
 $isUrlRefresh = PHP_SAPI !== 'cli' && isset($_GET['refresh']) && $_GET['refresh'] === '1';
 $isRefresh = $isCronRefresh || $isUrlRefresh;
+$refreshTargetDate = $isRefresh
+    ? new DateTimeImmutable('tomorrow')
+    : null;
 
 if ($isUrlRefresh) {
     $manualRefreshCooldown = manual_refresh_cooldown_status();
@@ -2449,7 +4884,7 @@ if ($isRefresh) {
         }
 
         try {
-            $refreshResult = refresh_dashboard_snapshot_for_target(null);
+            $refreshResult = refresh_dashboard_snapshot_for_target($refreshTargetDate);
             $snapshot = is_array($refreshResult['snapshot'] ?? null)
                 ? $refreshResult['snapshot']
                 : empty_dashboard_snapshot();
@@ -2470,9 +4905,28 @@ if ($isRefresh) {
     }
 }
 
+$govUpdateButtonState = gov_fuel_update_button_state($snapshot);
+$govUpdateAvailable = !empty($govUpdateButtonState['available']);
+$govUpdateTargetDateLabel = (string) ($govUpdateButtonState['targetDateLabel'] ?? '');
+$govUpdateArticle = is_array($govUpdateButtonState['article'] ?? null) ? $govUpdateButtonState['article'] : null;
 $manualRefreshUrl = './?refresh=1';
-$warnings = [];
+$autoRefreshMissingTomorrowPrices = !dashboard_snapshot_has_prices_for_date($snapshot, new DateTimeImmutable('tomorrow'));
+$autoRefreshShouldCheck = $autoRefreshMissingTomorrowPrices;
 
+$autoRefreshConfig = [
+    'enabled' => $autoRefreshShouldCheck,
+    'probeUrl' => './?probe_update=1&target=tomorrow',
+    'url' => './?auto_refresh=1&target=tomorrow',
+    'targetDateLabel' => (new DateTimeImmutable('tomorrow'))->format('d.m.Y'),
+    'articleTitle' => '',
+    'loading' => false,
+];
+
+$warnings = array_values(array_unique($snapshot['warnings'] ?? []));
+$announcements = $snapshot['announcements'] ?? [];
+$currentAnnouncement = $snapshot['currentAnnouncement'] ?? null;
+$previousAnnouncement = $snapshot['previousAnnouncement'] ?? null;
+$tomorrowAnnouncement = $snapshot['tomorrowAnnouncement'] ?? null;
 $stationPromotions = $snapshot['stationPromotions'] ?? [
     'url' => station_promotions_source_url(),
     'items' => [],
@@ -2502,6 +4956,11 @@ if (isset($stationPromotions['items']) && is_array($stationPromotions['items']))
     mark_top_station_promotions($stationPromotions['items']);
 }
 
+$fuelLabels = $snapshot['fuelLabels'] ?? [];
+$fuelCards = $snapshot['fuelCards'] ?? [];
+$dashboardData = $snapshot['dashboardData'] ?? ['recentAnnouncements' => []];
+$currentEffectiveLabel = $snapshot['currentEffectiveLabel'] ?? 'brak danych';
+$tomorrowEffectiveLabel = $snapshot['tomorrowEffectiveLabel'] ?? 'brak danych';
 $lastDataUpdateLabel = $snapshot['lastDataUpdateLabel'] ?? 'brak danych';
 
 $lastDataUpdateVisibleLabel = $snapshot['lastDataUpdateDateLabel'] ?? null;
@@ -2527,7 +4986,7 @@ if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
     $status = isset($_GET['status']) ? (string) $_GET['status'] : '';
 
     if ($status === 'fresh_saved') {
-        $manualRefreshMessage = 'Promocje zostały ręcznie odświeżone. Aktualny czas zapisu: ' . $lastDataUpdateLabel . '.';
+        $manualRefreshMessage = 'Dane zostały ręcznie odświeżone. Aktualny czas zapisu: ' . $lastDataUpdateLabel . '.';
         $manualRefreshClass = 'alert-success';
     } elseif ($status === 'refresh_cooldown') {
         $cooldownStatus = manual_refresh_cooldown_status();
@@ -2542,16 +5001,25 @@ if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
             : 'Odświeżanie było wywołane niedawno. Spróbuj ponownie za chwilę.';
         $manualRefreshClass = 'alert-danger';
     } elseif ($status === 'save_failed') {
-        $manualRefreshMessage = 'Promocje zostały pobrane, ale nie udało się zapisać snapshotu. Sprawdź uprawnienia katalogu .paliwa-cache.';
+        $manualRefreshMessage = 'Dane zostały pobrane, ale nie udało się zapisać snapshotu. Sprawdź uprawnienia katalogu .paliwa-cache.';
+        $manualRefreshClass = 'alert-warning';
+    } elseif ($status === 'target_missing_existing_kept') {
+        $manualRefreshMessage = 'Wykryto artykuł z nową aktualizacją, ale odświeżony snapshot nie zawiera jeszcze cen dla jutra. Zostawiono poprzedni zapis.';
+        $manualRefreshClass = 'alert-warning';
+    } elseif ($status === 'target_missing_saved') {
+        $manualRefreshMessage = 'Dane zostały pobrane, ale nie udało się potwierdzić cen dla jutra w snapshotcie.';
+        $manualRefreshClass = 'alert-warning';
+    } elseif ($status === 'target_missing_save_failed') {
+        $manualRefreshMessage = 'Dane zostały pobrane, ale nie udało się potwierdzić cen dla jutra ani zapisać snapshotu. Sprawdź uprawnienia katalogu .paliwa-cache.';
         $manualRefreshClass = 'alert-warning';
     } elseif ($status === 'failed_existing_kept') {
-        $manualRefreshMessage = 'Nie udało się pobrać świeżych promocji. Zostawiono poprzedni zapisany snapshot.';
+        $manualRefreshMessage = 'Nie udało się pobrać świeżych danych. Zostawiono poprzedni zapisany snapshot.';
         $manualRefreshClass = 'alert-warning';
     } elseif ($status === 'failed_empty_saved') {
-        $manualRefreshMessage = 'Nie udało się pobrać świeżych promocji, ale zapisano pusty snapshot diagnostyczny.';
+        $manualRefreshMessage = 'Nie udało się pobrać świeżych danych, ale zapisano pusty snapshot diagnostyczny.';
         $manualRefreshClass = 'alert-warning';
     } elseif ($status === 'failed_empty_save_failed') {
-        $manualRefreshMessage = 'Nie udało się pobrać świeżych promocji ani zapisać snapshotu. Sprawdź uprawnienia katalogu .paliwa-cache.';
+        $manualRefreshMessage = 'Nie udało się pobrać świeżych danych ani zapisać snapshotu. Sprawdź uprawnienia katalogu .paliwa-cache.';
         $manualRefreshClass = 'alert-warning';
     } elseif ($status === 'refresh_busy_existing_kept') {
         $manualRefreshMessage = 'Odświeżanie już trwa. Ponowne odświeżenie będzie możliwe po zakończeniu bieżącej próby.';
@@ -2564,8 +5032,12 @@ if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
 
 if ($isCronRefresh) {
     echo 'Cache refreshed at ' . $lastDataUpdateLabel . PHP_EOL;
+    echo 'Announcements: ' . count($announcements) . PHP_EOL;
+    echo 'Chart points: ' . count($dashboardData['recentAnnouncements'] ?? []) . PHP_EOL;
     echo 'Station promotions: ' . count($stationPromotions['items'] ?? []) . PHP_EOL;
     echo 'Station promotions source mode: ' . (string) ($stationPromotions['sourceMode'] ?? 'unknown') . PHP_EOL;
+    echo 'Gov update available: ' . ($govUpdateAvailable ? 'yes' : 'no') . PHP_EOL;
+    echo 'Gov update target: ' . $govUpdateTargetDateLabel . PHP_EOL;
     echo 'Status: ' . ($refreshStatus ?? 'unknown') . PHP_EOL;
     echo 'Snapshot: ' . dashboard_snapshot_path() . PHP_EOL;
     exit(0);
@@ -2576,7 +5048,7 @@ if ($isCronRefresh) {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Monitor promocji paliwowych</title>
+    <title>Monitor cen paliw w Polsce</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Cdefs%3E%3CradialGradient%20id='sphere'%20cx='34%25'%20cy='24%25'%20r='72%25'%3E%3Cstop%20offset='0'%20stop-color='%23dffaf2'/%3E%3Cstop%20offset='0.28'%20stop-color='%236bd6bc'/%3E%3Cstop%20offset='0.6'%20stop-color='%231f8a70'/%3E%3Cstop%20offset='1'%20stop-color='%2312343b'/%3E%3C/radialGradient%3E%3ClinearGradient%20id='gloss'%20x1='18'%20y1='10'%20x2='42'%20y2='42'%20gradientUnits='userSpaceOnUse'%3E%3Cstop%20offset='0'%20stop-color='%23ffffff'%20stop-opacity='0.82'/%3E%3Cstop%20offset='1'%20stop-color='%23ffffff'%20stop-opacity='0'/%3E%3C/linearGradient%3E%3Cfilter%20id='shadow'%20x='-20%25'%20y='-20%25'%20width='140%25'%20height='140%25'%3E%3CfeDropShadow%20dx='0'%20dy='4'%20stdDeviation='4'%20flood-color='%23061316'%20flood-opacity='0.35'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle%20cx='32'%20cy='32'%20r='27'%20fill='url(%23sphere)'%20filter='url(%23shadow)'/%3E%3Cpath%20d='M16%2035C21%2040%2031%2043%2042%2040C48%2038%2052%2034%2054%2030C53%2044%2043%2057%2030%2058C20%2058%2011%2052%208%2043C10%2040%2013%2037%2016%2035Z'%20fill='%230b1f23'%20opacity='0.22'/%3E%3Cellipse%20cx='24'%20cy='20'%20rx='10'%20ry='7'%20fill='url(%23gloss)'%20transform='rotate(-24%2024%2020)'/%3E%3Cpath%20d='M45%2012C51%2018%2055%2025%2055%2033'%20fill='none'%20stroke='%236bd6bc'%20stroke-width='3'%20stroke-linecap='round'%20opacity='0.7'/%3E%3C/svg%3E">
 
     <script>
@@ -3436,11 +5908,11 @@ if ($isCronRefresh) {
         <section class="card-surface hero-panel p-4 p-lg-5 mb-4">
             <div class="row g-4 align-items-start position-relative">
                 <div class="col-lg-8">
-                    <h1 class="hero-title font-display fw-bold display-5 mb-3">Monitor promocji paliwowych</h1>
+                    <h1 class="hero-title font-display fw-bold display-5 mb-3">Oficjalne limity cen paliw</h1>
                     <p class="hero-copy mb-0">
-                        Zestawienie <strong>aktualnych promocji paliwowych</strong> ze stacji
-                        (BP, Circle K, Shell, ORLEN) z automatycznym wykrywaniem najlepszej okazji
-                        na benzynę i olej napędowy.
+                        Widok pokazuje ceny obowiązujące <strong><?= e((string) $currentEffectiveLabel) ?></strong>,
+                        zmiany względem poprzedniego komunikatu, podgląd na <strong>jutro</strong>
+                        oraz aktualne promocje paliwowe ze stacji.
                     </p>
                 </div>
                 <div class="col-lg-4">
@@ -3487,7 +5959,26 @@ if ($isCronRefresh) {
             </section>
         <?php endif; ?>
 
+        <section id="autoRefreshBlockAlert" class="alert alert-danger border-0 rounded-4 mb-4" hidden>
+            <strong>Odświeżanie:</strong>
+            Przycisk chwilowo wyłączony, ceny na jutro są ładowane.
+        </section>
+
         <div class="dashboard-tabs-row">
+            <nav class="dashboard-tabs" role="tablist" aria-label="Sekcje dashboardu">
+                <button class="dashboard-tab is-active" type="button" role="tab" aria-selected="true" data-dashboard-tab="prices">
+                    Limity cen
+                </button>
+                <button class="dashboard-tab" type="button" role="tab" aria-selected="false" data-dashboard-tab="promotions">
+                    Aktualne promocje
+                </button>
+                <?php /*
+                <button class="dashboard-tab dashboard-tab-alerts" type="button" role="tab" aria-selected="false" data-dashboard-tab="alerts">
+                    Powiadomienia
+                </button>
+                */ ?>
+            </nav>
+
             <div class="theme-toggle dashboard-theme-toggle">
                 <label class="theme-switch" for="themeToggle">
                     <input type="checkbox" id="themeToggle" aria-label="Przełącz ciemne tło">
@@ -3502,7 +5993,69 @@ if ($isCronRefresh) {
             </div>
         </div>
 
-        <div class="promotions-panel">
+        <div class="tab-panel" data-dashboard-panel="prices">
+            <section class="row g-3 g-lg-4 mb-4">
+                <?php foreach ($fuelCards as $card): ?>
+                    <?php
+                    $todayDeltaClass = delta_class($card['todayDelta'] ?? null);
+                    $tomorrowDeltaClass = delta_class($card['tomorrowDelta'] ?? null);
+                    $todayArrow = delta_arrow($card['todayDelta'] ?? null);
+                    $tomorrowArrow = delta_arrow($card['tomorrowDelta'] ?? null);
+                    $hasTomorrowPrice = ($card['tomorrowPrice'] ?? null) !== null;
+                    $isSameTomorrow = $hasTomorrowPrice && ($card['todayPrice'] ?? null) !== null && abs((float) $card['tomorrowPrice'] - (float) $card['todayPrice']) < 0.0001;
+                    ?>
+                    <div class="col-md-6 col-lg-4">
+                        <article class="metric-card h-100">
+                            <div class="metric-card-top">
+                                <p class="text-uppercase small fw-semibold text-secondary mb-0"><?= e((string) ($card['label'] ?? '')) ?></p>
+
+                                <div class="metric-price-row">
+                                    <div class="metric-value"><?= e(format_price($card['todayPrice'] ?? null)) ?></div>
+
+                                    <span class="delta-chip <?= e($todayDeltaClass) ?>">
+                                        <span><?= e($todayArrow) ?></span>
+                                        <span><?= $todayDeltaClass === 'delta-neutral' ? 'bez zmian' : e(format_delta($card['todayDelta'] ?? null)) ?></span>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <?php if ($hasTomorrowPrice): ?>
+                                <div class="tomorrow-ribbon <?= e($tomorrowDeltaClass) ?>">
+                                    <span class="tomorrow-ribbon-label">Jutro</span>
+                                    <span class="tomorrow-ribbon-price"><?= e(format_price($card['tomorrowPrice'] ?? null)) ?></span>
+
+                                    <?php if ($isSameTomorrow): ?>
+                                        <span class="tomorrow-ribbon-main">bez zmian</span>
+                                    <?php else: ?>
+                                        <span class="tomorrow-ribbon-badge"><?= e($tomorrowArrow) ?> <?= e(format_delta($card['tomorrowDelta'] ?? null)) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="tomorrow-ribbon tomorrow-ribbon-empty">Brak zmiany na jutro</div>
+                            <?php endif; ?>
+                        </article>
+                    </div>
+                <?php endforeach; ?>
+            </section>
+
+            <section class="row g-4 mb-4">
+                <div>
+                    <article class="card-surface p-4 p-lg-5 h-100">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+                            <div>
+                                <p class="text-uppercase small fw-semibold text-secondary mb-2">Bieżący monitoring</p>
+                                <h2 class="section-title h1 mb-0">Ostatni miesiąc publikacji</h2>
+                            </div>
+                        </div>
+                        <div class="chart-wrap">
+                            <canvas id="recentChart"></canvas>
+                        </div>
+                    </article>
+                </div>
+            </section>
+        </div>
+
+        <div class="tab-panel" data-dashboard-panel="promotions" hidden>
             <section class="mb-4">
                 <article class="card-surface p-4 p-lg-5 h-100 promo-section-card">
                     <div class="promo-toolbar">
@@ -3656,20 +6209,53 @@ if ($isCronRefresh) {
             </section>
         </div>
 
+        <div class="tab-panel" data-dashboard-panel="alerts" hidden>
+            <section class="mb-4">
+                <article class="card-surface p-4 p-lg-5 h-100 alerts-card">
+                    <div class="alerts-content">
+                        <p class="alerts-copy">
+                            Powiadomienia są wysyłane za pośrednictwem bota na Telegramie. Dostaniesz powiadomienie, gdy cena paliwa się zmieni. <strong>Maksymalnie raz dziennie.</strong>
+                        </p>
+                    </div>
+
+                    <a class="telegram-cta" href="<?= e(telegram_alert_bot_url()) ?>" target="_blank" rel="noreferrer">
+                        <svg class="telegram-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M21.7 3.3a1.2 1.2 0 0 0-1.2-.18L2.9 10.08c-.52.2-.86.65-.89 1.17-.03.53.27 1.01.76 1.27l4.32 2.17 2.05 5.94c.15.43.5.72.94.78.44.06.86-.14 1.12-.51l2.35-3.34 4.54 3.32c.36.26.82.31 1.22.13.39-.18.67-.55.74-.98l1.99-15.56c.06-.46-.07-.86-.34-1.16Zm-4.02 3.54-7.85 7.25-.3 3.71-1.22-3.56 9.37-7.4Z"/>
+                        </svg>
+                        <span>Kanał Telegram</span>
+                    </a>
+                </article>
+            </section>
+        </div>
+
         <footer class="page-footer py-4 text-secondary small">
             Źródła:
-            <a class="source-link" href="<?= e(bp_official_promotions_source_url()) ?>" target="_blank" rel="noreferrer">BP</a>,
-            <a class="source-link" href="<?= e(circlek_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Circle K</a>,
-            <a class="source-link" href="<?= e(shell_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Shell</a>,
-            <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>.
+            <a class="source-link" href="https://www.gov.pl/web/energia/wiadomosci" target="_blank" rel="noreferrer">Ministerstwo Energii na gov.pl</a>
+            ,
+            <a class="source-link" href="<?= e(monitor_polish_source_url()) ?>" target="_blank" rel="noreferrer">Monitor Polski</a>.
             <br>
             Kod źródłowy projektu:
             <a class="source-link" href="https://github.com/udnn1/Monitor-cen-paliw" target="_blank" rel="noreferrer">github.com/udnn1/Monitor-cen-paliw</a>.
         </footer>
     </main>
+
+    <div id="tomorrowPriceLoader" class="tomorrow-loader" role="status" aria-live="polite" hidden>
+        <span class="tomorrow-loader-spinner" aria-hidden="true"></span>
+
+        <span class="tomorrow-loader-copy">
+            <span class="tomorrow-loader-title" data-tomorrow-loader-title>
+                Wykryto ceny na jutro
+            </span>
+            <span class="tomorrow-loader-text" data-tomorrow-loader-text>
+                Trwa wczytywanie najnowszej aktualizacji
+            </span>
+        </span>
+    </div>
 </div>
 
 <script>
+    const dashboardData = <?= json_encode($dashboardData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const autoRefreshConfig = <?= json_encode($autoRefreshConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     const root = document.documentElement;
     const themeToggle = document.getElementById('themeToggle');
     const themeToggleIcon = document.getElementById('themeToggleIcon');
@@ -3696,6 +6282,7 @@ if ($isCronRefresh) {
         root.dataset.theme = theme === 'dark' ? 'dark' : 'light';
         setThemeControlState();
         saveThemePreference(getCurrentTheme());
+        if (window.recentChartInstance) applyChartTheme(window.recentChartInstance);
     };
 
     setThemeControlState();
@@ -3704,13 +6291,301 @@ if ($isCronRefresh) {
         themeToggle.addEventListener('change', () => applyTheme(themeToggle.checked ? 'dark' : 'light'));
     }
 
+    const formatPrice = (value) => {
+        if (value === null || value === undefined) return 'brak danych';
+        return new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) + ' zł/l';
+    };
+
+    const recentCtx = document.getElementById('recentChart');
+    const recentItems = dashboardData.recentAnnouncements || [];
+    const bodyFontFamily = 'Aptos, Segoe UI, Helvetica Neue, Arial, sans-serif';
+    let chartLibraryPromise;
+    let chartsRendered = false;
+
+    const getThemePalette = () => {
+        const styles = getComputedStyle(root);
+        const isDark = getCurrentTheme() === 'dark';
+
+        return {
+            ink: styles.getPropertyValue('--ink').trim() || (isDark ? '#eaf3f1' : '#12343b'),
+            muted: styles.getPropertyValue('--muted').trim() || (isDark ? '#9fb2b7' : '#4b5563'),
+            grid: isDark ? 'rgba(234, 243, 241, 0.10)' : 'rgba(18, 52, 59, 0.08)',
+            gridSoft: isDark ? 'rgba(234, 243, 241, 0.07)' : 'rgba(18, 52, 59, 0.06)',
+            surface: isDark ? 'rgba(13, 28, 32, 0.96)' : 'rgba(255, 255, 255, 0.98)',
+            surfaceBorder: isDark ? 'rgba(234, 243, 241, 0.16)' : 'rgba(18, 52, 59, 0.12)'
+        };
+    };
+
+    const applyChartTheme = (chart) => {
+        const palette = getThemePalette();
+        chart.options.plugins.legend.labels.color = palette.ink;
+        chart.options.scales.x.ticks.color = palette.muted;
+        chart.options.scales.y.grid.color = palette.grid;
+        chart.options.scales.y.ticks.color = palette.muted;
+
+        const tip = chart.options.plugins.tooltip;
+        tip.backgroundColor = palette.surface;
+        tip.titleColor = palette.ink;
+        tip.bodyColor = palette.ink;
+        tip.borderColor = palette.surfaceBorder;
+
+        chart.data.datasets.forEach((dataset) => {
+            dataset.pointBorderColor = palette.surface;
+            dataset.pointHoverBorderColor = palette.surface;
+        });
+
+        chart.update('none');
+    };
+
     const scheduleAfterLoad = (callback, delay = 0) => {
         const run = () => window.setTimeout(callback, delay);
         if (document.readyState === 'complete') {
             run();
             return;
         }
+
         window.addEventListener('load', run, { once: true });
+    };
+
+    const loadChartLibrary = () => {
+        if (typeof window.Chart !== 'undefined') return Promise.resolve(window.Chart);
+        if (chartLibraryPromise) return chartLibraryPromise;
+
+        chartLibraryPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js';
+            script.async = true;
+            script.onload = () => resolve(window.Chart);
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+
+        return chartLibraryPromise;
+    };
+
+    const CHART_HIDDEN_FUELS_KEY = 'fuelDashboardChartHiddenFuels';
+
+    const getStoredHiddenFuels = () => {
+        try {
+            const raw = localStorage.getItem(CHART_HIDDEN_FUELS_KEY);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    };
+
+    const storeHiddenFuels = (state) => {
+        try {
+            localStorage.setItem(CHART_HIDDEN_FUELS_KEY, JSON.stringify(state));
+        } catch (error) {}
+    };
+
+    const hexToRgba = (hex, alpha) => {
+        const clean = String(hex).replace('#', '');
+        const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
+        const num = parseInt(full, 16);
+        return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+    };
+
+    const makeAreaGradient = (context, hex) => {
+        const { ctx, chartArea } = context.chart;
+        if (!chartArea) return hexToRgba(hex, 0);
+        const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+        gradient.addColorStop(0, hexToRgba(hex, 0.24));
+        gradient.addColorStop(0.55, hexToRgba(hex, 0.07));
+        gradient.addColorStop(1, hexToRgba(hex, 0));
+        return gradient;
+    };
+
+    const lineGlowPlugin = {
+        id: 'lineGlow',
+        beforeDatasetDraw(chart, args) {
+            const meta = chart.getDatasetMeta(args.index);
+            if (!meta || meta.type !== 'line' || meta.hidden) return;
+            const dataset = chart.data.datasets[args.index];
+            chart.ctx.save();
+            chart.ctx.shadowColor = hexToRgba(dataset.borderColor, 0.30);
+            chart.ctx.shadowBlur = 7;
+            chart.ctx.shadowOffsetY = 3;
+        },
+        afterDatasetDraw(chart) {
+            chart.ctx.restore();
+        }
+    };
+
+    const renderCharts = () => {
+        if (chartsRendered || typeof window.Chart === 'undefined') return;
+        chartsRendered = true;
+
+        if (recentCtx && recentItems.length > 0) {
+            const palette = getThemePalette();
+
+            const fuelStyles = {
+                PB95: { border: '#1f8a70', background: 'rgba(31, 138, 112, 0.15)' },
+                PB98: { border: '#f4b942', background: 'rgba(244, 185, 66, 0.18)' },
+                ON: { border: '#c62828', background: 'rgba(198, 40, 40, 0.14)' }
+            };
+
+            const fuelCodes = Object.keys(fuelStyles).filter((fuel) =>
+                recentItems.some((item) => item.prices && item.prices[fuel] !== undefined && item.prices[fuel] !== null)
+            );
+
+            const storedHiddenFuels = getStoredHiddenFuels();
+
+            window.recentChartInstance = new window.Chart(recentCtx, {
+                type: 'line',
+                data: {
+                    labels: recentItems.map((item) => item.label),
+                    datasets: fuelCodes.map((fuel) => ({
+                        label: fuel,
+                        data: recentItems.map((item) => item.prices?.[fuel] ?? null),
+                        borderColor: fuelStyles[fuel].border,
+                        backgroundColor: (context) => makeAreaGradient(context, fuelStyles[fuel].border),
+                        pointBackgroundColor: fuelStyles[fuel].border,
+                        pointBorderColor: palette.surface,
+                        pointBorderWidth: 2,
+                        pointHoverBackgroundColor: fuelStyles[fuel].border,
+                        pointHoverBorderColor: palette.surface,
+                        pointHoverBorderWidth: 2.5,
+                        hidden: storedHiddenFuels[fuel] === true,
+                        tension: 0.4,
+                        spanGaps: true,
+                        borderWidth: 2.5,
+                        borderCapStyle: 'round',
+                        borderJoinStyle: 'round',
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        pointHitRadius: 16,
+                        fill: true
+                    }))
+                },
+                options: {
+                    animation: { duration: 750, easing: 'easeOutQuart' },
+                    maintainAspectRatio: false,
+                    layout: { padding: { top: 10, right: 10, bottom: 0, left: 4 } },
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                boxWidth: 8,
+                                boxHeight: 8,
+                                padding: 16,
+                                color: palette.ink,
+                                font: { family: bodyFontFamily, weight: '600', size: 13 }
+                            },
+                            onClick: (event, legendItem, legend) => {
+                                const chart = legend.chart;
+                                window.Chart.defaults.plugins.legend.onClick.call(chart.legend, event, legendItem, legend);
+
+                                const state = {};
+                                chart.data.datasets.forEach((dataset, index) => {
+                                    state[dataset.label] = !chart.isDatasetVisible(index);
+                                });
+                                storeHiddenFuels(state);
+                            }
+                        },
+                        tooltip: {
+                            usePointStyle: true,
+                            backgroundColor: palette.surface,
+                            titleColor: palette.ink,
+                            bodyColor: palette.ink,
+                            borderColor: palette.surfaceBorder,
+                            borderWidth: 1,
+                            cornerRadius: 12,
+                            padding: 12,
+                            boxPadding: 6,
+                            titleFont: { family: bodyFontFamily, weight: '700', size: 13 },
+                            bodyFont: { family: bodyFontFamily, weight: '600', size: 13 },
+                            callbacks: {
+                                title: (contexts) => contexts[0]?.label || '',
+                                label: (context) => ` ${context.dataset.label}: ${formatPrice(context.raw)}`,
+                                labelPointStyle: () => ({ pointStyle: 'circle', rotation: 0 })
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            border: { display: false },
+                            grid: { display: false },
+                            ticks: { color: palette.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, padding: 8, font: { family: bodyFontFamily, size: 12 } }
+                        },
+                        y: {
+                            border: { display: false },
+                            grid: { color: palette.grid, drawTicks: false },
+                            ticks: {
+                                color: palette.muted,
+                                padding: 10,
+                                maxTicksLimit: 6,
+                                font: { family: bodyFontFamily, size: 12 },
+                                callback: (value) => `${Number(value).toFixed(2).replace('.', ',')} zł`
+                            }
+                        }
+                    }
+                },
+                plugins: [lineGlowPlugin]
+            });
+        }
+    };
+
+    const bootCharts = () => {
+        if (!recentCtx || recentItems.length === 0) return;
+        loadChartLibrary().then(renderCharts).catch(() => {});
+    };
+
+    const dashboardTabs = document.querySelector('.dashboard-tabs');
+    const dashboardTabButtons = Array.from(document.querySelectorAll('[data-dashboard-tab]'));
+    const dashboardTabPanels = Array.from(document.querySelectorAll('[data-dashboard-panel]'));
+    let dashboardTabHoverTarget = null;
+
+    const getStoredDashboardTab = () => {
+        try {
+            return localStorage.getItem('fuelDashboardActiveTab') || 'prices';
+        } catch (error) {
+            return 'prices';
+        }
+    };
+
+    const storeDashboardTab = (tabName) => {
+        try {
+            localStorage.setItem('fuelDashboardActiveTab', tabName);
+        } catch (error) {}
+    };
+
+    const getDashboardTabIndicatorTarget = () => (
+        dashboardTabHoverTarget
+        || dashboardTabButtons.find((button) => button.classList.contains('is-active'))
+        || dashboardTabButtons[0]
+        || null
+    );
+
+    const moveDashboardTabIndicator = (target) => {
+        if (!dashboardTabs || !target) return;
+
+        const tabsRect = dashboardTabs.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const left = targetRect.left - tabsRect.left;
+        const top = targetRect.top - tabsRect.top;
+
+        dashboardTabs.style.setProperty('--tab-indicator-left', `${left}px`);
+        dashboardTabs.style.setProperty('--tab-indicator-top', `${top}px`);
+        dashboardTabs.style.setProperty('--tab-indicator-width', `${targetRect.width}px`);
+        dashboardTabs.style.setProperty('--tab-indicator-height', `${targetRect.height}px`);
+        dashboardTabs.style.setProperty('--tab-indicator-opacity', '1');
+        dashboardTabs.dataset.indicatorTone = target.classList.contains('dashboard-tab-alerts') ? 'alerts' : 'default';
+
+        dashboardTabButtons.forEach((button) => {
+            button.classList.toggle('is-indicator-target', button === target);
+        });
+    };
+
+    const syncDashboardTabIndicator = () => {
+        window.requestAnimationFrame(() => moveDashboardTabIndicator(getDashboardTabIndicatorTarget()));
     };
 
     const refreshPromoToggles = () => {
@@ -3760,21 +6635,405 @@ if ($isCronRefresh) {
             window.cancelAnimationFrame(promoResizeRaf);
         }
 
-        promoResizeRaf = window.requestAnimationFrame(refreshPromoToggles);
+        promoResizeRaf = window.requestAnimationFrame(() => {
+            const panel = document.querySelector('[data-dashboard-panel="promotions"]');
+
+            if (panel && !panel.hidden) {
+                refreshPromoToggles();
+            }
+        });
     });
 
-    scheduleAfterLoad(refreshPromoToggles, 60);
+    const activateDashboardTab = (tabName, shouldStore = true) => {
+        const selectedTab = dashboardTabButtons.some((button) => button.dataset.dashboardTab === tabName) ? tabName : 'prices';
+
+        dashboardTabButtons.forEach((button) => {
+            const isActive = button.dataset.dashboardTab === selectedTab;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        dashboardTabPanels.forEach((panel) => {
+            panel.hidden = panel.dataset.dashboardPanel !== selectedTab;
+        });
+
+        if (shouldStore) {
+            storeDashboardTab(selectedTab);
+        }
+
+        syncDashboardTabIndicator();
+
+        if (selectedTab === 'prices') {
+            bootCharts();
+
+            if (window.recentChartInstance) {
+                window.recentChartInstance.resize();
+                applyChartTheme(window.recentChartInstance);
+            }
+        }
+
+        if (selectedTab === 'promotions') {
+            window.requestAnimationFrame(refreshPromoToggles);
+        }
+    };
+
+    dashboardTabButtons.forEach((button) => {
+        button.addEventListener('mouseenter', () => {
+            dashboardTabHoverTarget = button;
+            syncDashboardTabIndicator();
+        });
+
+        button.addEventListener('focus', () => {
+            dashboardTabHoverTarget = button;
+            syncDashboardTabIndicator();
+        });
+
+        button.addEventListener('blur', () => {
+            window.requestAnimationFrame(() => {
+                if (!dashboardTabs || !dashboardTabs.contains(document.activeElement)) {
+                    dashboardTabHoverTarget = null;
+                    syncDashboardTabIndicator();
+                }
+            });
+        });
+
+        button.addEventListener('click', () => {
+            dashboardTabHoverTarget = null;
+            activateDashboardTab(button.dataset.dashboardTab || 'prices');
+        });
+    });
+
+    if (dashboardTabs) {
+        dashboardTabs.addEventListener('mouseleave', () => {
+            dashboardTabHoverTarget = null;
+            syncDashboardTabIndicator();
+        });
+    }
+
+    window.addEventListener('resize', syncDashboardTabIndicator);
+
+    activateDashboardTab(getStoredDashboardTab(), false);
+
+    const tomorrowPriceLoader = document.getElementById('tomorrowPriceLoader');
+    const autoRefreshBlockAlert = document.getElementById('autoRefreshBlockAlert');
+    let tomorrowPriceLoaderHideTimer = null;
+    let tomorrowRetryTimeout = null;
+    let isAutoRefreshUpdating = false;
+
+    const autoRefreshBlockedTooltip = 'Trwa ładowanie cen na jutro';
+
+    const clearTomorrowRetryTimers = () => {
+        window.clearTimeout(tomorrowRetryTimeout);
+        tomorrowRetryTimeout = null;
+    };
+
+    const setManualRefreshBlocked = (blocked) => {
+        isAutoRefreshUpdating = blocked;
+
+        const button = document.getElementById('manualRefreshButton');
+
+        if (button) {
+            button.classList.toggle('is-auto-blocked', blocked);
+            button.removeAttribute('title');
+
+            if (blocked) {
+                button.setAttribute('aria-disabled', 'true');
+                button.setAttribute('aria-label', autoRefreshBlockedTooltip);
+                button.setAttribute('data-tooltip', autoRefreshBlockedTooltip);
+            } else {
+                button.removeAttribute('aria-disabled');
+                    button.removeAttribute('aria-label');
+                button.removeAttribute('data-tooltip');
+            }
+        }
+
+        if (autoRefreshBlockAlert) {
+            autoRefreshBlockAlert.hidden = true;
+        }
+    };
+
+    const showTomorrowPriceLoader = () => {
+        window.clearTimeout(tomorrowPriceLoaderHideTimer);
+
+        if (tomorrowPriceLoader) {
+            const titleElement = tomorrowPriceLoader.querySelector('[data-tomorrow-loader-title]');
+            const textElement = tomorrowPriceLoader.querySelector('[data-tomorrow-loader-text]');
+
+            if (titleElement) titleElement.textContent = 'Wykryto ceny na jutro';
+            if (textElement) textElement.textContent = 'Trwa wczytywanie najnowszej aktualizacji';
+
+            tomorrowPriceLoader.hidden = false;
+
+            window.requestAnimationFrame(() => {
+                tomorrowPriceLoader.classList.add('is-visible');
+            });
+        }
+
+        const button = document.getElementById('manualRefreshButton');
+
+        if (button) {
+            button.classList.add('is-loading');
+            button.setAttribute('aria-busy', 'true');
+
+            const label = button.querySelector('[data-refresh-label]');
+            if (label) label.textContent = 'Ładowanie cen';
+        }
+
+        setManualRefreshBlocked(true);
+    };
+
+    const hideTomorrowPriceLoader = () => {
+        clearTomorrowRetryTimers();
+
+        if (tomorrowPriceLoader) {
+            tomorrowPriceLoader.classList.remove('is-visible');
+
+            tomorrowPriceLoaderHideTimer = window.setTimeout(() => {
+                tomorrowPriceLoader.hidden = true;
+            }, 240);
+        }
+
+        const button = document.getElementById('manualRefreshButton');
+
+        if (button) {
+            button.classList.remove('is-loading');
+            button.removeAttribute('aria-busy');
+
+            const label = button.querySelector('[data-refresh-label]');
+            if (label) label.textContent = 'Odśwież dane';
+        }
+
+        setManualRefreshBlocked(false);
+    };
+
+    const reloadDashboardAfterAutoRefresh = () => {
+        const url = new URL(window.location.href);
+
+        url.searchParams.delete('refreshed');
+        url.searchParams.delete('status');
+        url.searchParams.set('auto_prices_loaded', '1');
+        url.searchParams.set('t', String(Date.now()));
+
+        window.location.replace(url.toString());
+    };
+
+    const scheduleTomorrowRetry = (delaySeconds, targetLabel, callback, options = {}) => {
+        clearTomorrowRetryTimers();
+
+        const remainingSeconds = Math.max(1, Math.ceil(Number(delaySeconds) || 1));
+        const pollIntervalSeconds = Math.max(0, Math.ceil(Number(options.pollIntervalSeconds || 0)));
+        const nextCheckSeconds = pollIntervalSeconds > 0
+            ? Math.min(remainingSeconds, pollIntervalSeconds)
+            : remainingSeconds;
+
+        if (options.showLoader !== false) {
+            showTomorrowPriceLoader();
+        }
+
+        tomorrowRetryTimeout = window.setTimeout(() => {
+            clearTomorrowRetryTimers();
+            callback();
+        }, nextCheckSeconds * 1000);
+    };
+
+    const bootAutoRefresh = () => {
+        if (!autoRefreshConfig || !autoRefreshConfig.enabled || !autoRefreshConfig.url) {
+            return;
+        }
+
+        let attempts = 0;
+        const maxAttempts = 12;
+        const targetLabel = autoRefreshConfig.targetDateLabel ? ` (${autoRefreshConfig.targetDateLabel})` : '';
+
+        const retryableStatuses = new Set([
+            'refresh_busy',
+            'target_missing_existing_kept',
+            'target_missing_saved',
+            'target_missing_save_failed',
+            'failed_existing_kept',
+            'failed_empty_saved',
+            'failed_empty_save_failed'
+        ]);
+
+        const retryDelaySeconds = (payload) => {
+            const retryAfterSeconds = Number(payload?.retryAfterSeconds || 0);
+
+            if (retryAfterSeconds > 0) {
+                return Math.max(5, retryAfterSeconds);
+            }
+
+            return attempts <= 2 ? 8 : 20;
+        };
+
+        const requestRefresh = () => {
+            clearTomorrowRetryTimers();
+            attempts += 1;
+
+            showTomorrowPriceLoader();
+
+            fetch(autoRefreshConfig.url, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' }
+            })
+                .then((response) => response.ok ? response.json() : null)
+                .then((payload) => {
+                    if (!payload) {
+                        if (attempts < 3) {
+                            scheduleTomorrowRetry(8, targetLabel, requestRefresh);
+                            return;
+                        }
+
+                        hideTomorrowPriceLoader();
+                        return;
+                    }
+
+                    const status = String(payload.status || '');
+
+                    if (status === 'auto_throttled') {
+                        hideTomorrowPriceLoader();
+                        return;
+                    }
+
+                    if (payload.reload) {
+                        showTomorrowPriceLoader();
+                        window.setTimeout(reloadDashboardAfterAutoRefresh, 450);
+                        return;
+                    }
+
+                    const canRetry = retryableStatuses.has(status) && attempts < maxAttempts;
+
+                    if (canRetry) {
+                        const delay = retryDelaySeconds(payload);
+                        const shouldProbeInstead = status === 'refresh_busy';
+
+                        scheduleTomorrowRetry(delay, targetLabel, shouldProbeInstead ? probeForUpdate : requestRefresh, {
+                            pollIntervalSeconds: shouldProbeInstead ? 4 : 8
+                        });
+                        return;
+                    }
+
+                    hideTomorrowPriceLoader();
+                })
+                .catch(() => {
+                    if (attempts < 3) {
+                        scheduleTomorrowRetry(8, targetLabel, requestRefresh);
+                        return;
+                    }
+
+                    hideTomorrowPriceLoader();
+                });
+        };
+
+        const probeForUpdate = () => {
+            if (autoRefreshConfig.loading) {
+                requestRefresh();
+                return;
+            }
+
+            if (!autoRefreshConfig.probeUrl) {
+                hideTomorrowPriceLoader();
+                return;
+            }
+
+            const scheduleProbeRetry = (payload, fallbackDelay = 6, options = {}) => {
+                const delay = Math.max(1, Number(payload?.retryAfterSeconds || fallbackDelay));
+
+                scheduleTomorrowRetry(delay, targetLabel, probeForUpdate, {
+                    pollIntervalSeconds: 4,
+                    showLoader: options.showLoader === true
+                });
+            };
+
+            fetch(autoRefreshConfig.probeUrl, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' }
+            })
+                .then((response) => response.ok ? response.json() : null)
+                .then((payload) => {
+                    if (!payload) {
+                        if (isAutoRefreshUpdating) {
+                            scheduleTomorrowRetry(6, targetLabel, probeForUpdate, {
+                                pollIntervalSeconds: 4
+                            });
+                        }
+
+                        return;
+                    }
+
+                    const status = String(payload.status || '');
+
+                    if (status === 'auto_throttled') {
+                        hideTomorrowPriceLoader();
+                        return;
+                    }
+
+                    if (payload.reload) {
+                        reloadDashboardAfterAutoRefresh();
+                        return;
+                    }
+
+                    if (payload.updateAvailable && !payload.loading) {
+                        requestRefresh();
+                        return;
+                    }
+
+                    if (status === 'probe_busy') {
+                        scheduleProbeRetry(payload, 6, { showLoader: false });
+                        return;
+                    }
+
+                    if (status === 'refresh_busy') {
+                        scheduleProbeRetry(payload, 8, { showLoader: true });
+                        return;
+                    }
+
+                    if (payload.loading) {
+                        scheduleProbeRetry(payload, 8, { showLoader: true });
+                        return;
+                    }
+
+                    if (status === 'no_update') {
+                        hideTomorrowPriceLoader();
+                    }
+                })
+                .catch(() => {
+                    if (isAutoRefreshUpdating) {
+                        scheduleTomorrowRetry(6, targetLabel, probeForUpdate, {
+                            pollIntervalSeconds: 4
+                        });
+                    }
+                });
+        };
+
+        probeForUpdate();
+    };
+
+    bootAutoRefresh();
 
     const manualRefreshButton = document.getElementById('manualRefreshButton');
 
     if (manualRefreshButton) {
-        manualRefreshButton.addEventListener('click', () => {
+        manualRefreshButton.addEventListener('click', (event) => {
+            if (isAutoRefreshUpdating || manualRefreshButton.getAttribute('aria-disabled') === 'true') {
+                event.preventDefault();
+                setManualRefreshBlocked(true);
+                return;
+            }
+
             manualRefreshButton.classList.add('is-loading');
             manualRefreshButton.setAttribute('aria-busy', 'true');
 
             const label = manualRefreshButton.querySelector('[data-refresh-label]');
+            const sublabel = manualRefreshButton.querySelector('[data-refresh-sublabel]');
+
             if (label) {
                 label.textContent = 'Odświeżanie...';
+            }
+
+            if (sublabel) {
+                sublabel.textContent = '';
             }
         });
     }
@@ -3791,9 +7050,10 @@ if ($isCronRefresh) {
     (() => {
         const url = new URL(window.location.href);
 
-        if (url.searchParams.get('refreshed') === '1') {
+        if (url.searchParams.get('refreshed') === '1' || url.searchParams.get('auto_prices_loaded') === '1') {
             url.searchParams.delete('refreshed');
             url.searchParams.delete('status');
+            url.searchParams.delete('auto_prices_loaded');
             url.searchParams.delete('t');
 
             const cleanSearch = url.searchParams.toString();
@@ -3802,6 +7062,12 @@ if ($isCronRefresh) {
             window.history.replaceState({}, document.title, cleanUrl);
         }
     })();
+
+    scheduleAfterLoad(() => {
+        if (!document.querySelector('[data-dashboard-panel="prices"]')?.hidden) {
+            bootCharts();
+        }
+    }, 120);
 </script>
 </body>
 </html>
