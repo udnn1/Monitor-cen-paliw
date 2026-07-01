@@ -902,19 +902,18 @@ function station_promotion_discount_condition_penalty(array $item): int
 
 function station_promotion_rank_metrics(array $item): array
 {
-    $network = (string) ($item['network'] ?? '');
-    $headline = is_numeric($item['discountValueGrPerL'] ?? null) ? (int) $item['discountValueGrPerL'] : -1;
+    if (isset($item['display']['fuels']['benzyna']['g']) && is_numeric($item['display']['fuels']['benzyna']['g'])) {
+        $guaranteed = (int) $item['display']['fuels']['benzyna']['g'];
+    } elseif (is_numeric($item['discountValueGrPerL'] ?? null)) {
+        $guaranteed = (int) $item['discountValueGrPerL'];
+    } else {
+        $guaranteed = -1;
+    }
 
-    return match ($network) {
-        'BP' => ['value' => $headline, 'penalty' => 0],
-        'Circle K' => ['value' => 30, 'penalty' => 0],
-        'Shell' => ['value' => $headline, 'penalty' => 1],
-        'ORLEN' => ['value' => $headline, 'penalty' => 2],
-        default => [
-            'value' => $headline,
-            'penalty' => station_promotion_discount_condition_penalty($item),
-        ],
-    };
+    return [
+        'value' => $guaranteed,
+        'penalty' => station_promotion_discount_condition_penalty($item),
+    ];
 }
 
 function station_promotions_sort(array &$items): void
@@ -930,12 +929,12 @@ function station_promotions_sort(array &$items): void
         $leftRank = station_promotion_rank_metrics($left);
         $rightRank = station_promotion_rank_metrics($right);
 
-        if ($leftRank['penalty'] !== $rightRank['penalty']) {
-            return $leftRank['penalty'] <=> $rightRank['penalty'];
-        }
-
         if ($leftRank['value'] !== $rightRank['value']) {
             return $rightRank['value'] <=> $leftRank['value'];
+        }
+
+        if ($leftRank['penalty'] !== $rightRank['penalty']) {
+            return $leftRank['penalty'] <=> $rightRank['penalty'];
         }
 
         $leftTo = $left['toIso'] ?? '9999-12-31';
@@ -974,8 +973,8 @@ function mark_top_station_promotions(array &$items): void
         $penalty = $rank['penalty'];
 
         if (
-            $penalty < $bestPenalty
-            || ($penalty === $bestPenalty && $score > $bestScore)
+            $score > $bestScore
+            || ($score === $bestScore && $penalty < $bestPenalty)
         ) {
             $bestScore = $score;
             $bestPenalty = $penalty;
