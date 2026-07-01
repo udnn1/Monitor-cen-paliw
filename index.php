@@ -2273,6 +2273,284 @@ function fetch_circlek_fuel_promotions(): array
     ];
 }
 
+function moya_promotions_source_url(): string
+{
+    return 'https://moyastacja.pl/aktualnosci.html';
+}
+
+function moya_known_fuel_promotion_url(): string
+{
+    return 'https://moyastacja.pl/aktualnosci/letnie-oszczednosci-na-stacjach-moya-nawet-do-40-gr-l-rabatu-z-aplikacja-super-moya.html';
+}
+
+function moya_absolute_url(string $url): string
+{
+    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+    if ($url === '') {
+        return '';
+    }
+
+    if (preg_match('~^https?://~i', $url) === 1) {
+        return $url;
+    }
+
+    if (str_starts_with($url, '//')) {
+        return 'https:' . $url;
+    }
+
+    if (str_starts_with($url, '/')) {
+        return 'https://moyastacja.pl' . $url;
+    }
+
+    return 'https://moyastacja.pl/' . ltrim($url, '/');
+}
+
+function moya_fuel_promotion_url(): ?string
+{
+    $html = http_get(moya_promotions_source_url());
+
+    if (is_string($html) && trim($html) !== ''
+        && preg_match_all('~href="(/aktualnosci/[^"]+\.html)"~i', $html, $matches) > 0) {
+        foreach ($matches[1] as $href) {
+            $slug = strtolower($href);
+
+            $isOpening = strpos($slug, 'otwiera') !== false
+                || strpos($slug, 'otwarcie') !== false
+                || strpos($slug, 'nowa-stacj') !== false
+                || strpos($slug, 'nowy-punkt') !== false
+                || strpos($slug, 'na-start') !== false;
+
+            if ($isOpening) {
+                continue;
+            }
+
+            $isFuelPromo = strpos($slug, 'rabat') !== false
+                || strpos($slug, 'gr-l') !== false
+                || strpos($slug, 'oszczed') !== false
+                || strpos($slug, 'kupon') !== false
+                || strpos($slug, 'super-moya') !== false;
+
+            if ($isFuelPromo) {
+                return moya_absolute_url($href);
+            }
+        }
+    }
+
+    return moya_known_fuel_promotion_url();
+}
+
+function moya_genitive_months(): array
+{
+    return [
+        'stycznia' => 1, 'lutego' => 2, 'marca' => 3, 'kwietnia' => 4, 'maja' => 5, 'czerwca' => 6,
+        'lipca' => 7, 'sierpnia' => 8, 'września' => 9, 'wrzesnia' => 9, 'października' => 10,
+        'pazdziernika' => 10, 'listopada' => 11, 'grudnia' => 12,
+    ];
+}
+
+function moya_resolve_year(int $month, int $day): int
+{
+    $today = new DateTimeImmutable('today');
+    $year = (int) $today->format('Y');
+
+    if (!checkdate($month, $day, $year)) {
+        return $year;
+    }
+
+    $candidate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+
+    if ($candidate < $today->modify('-6 months')) {
+        $year += 1;
+    }
+
+    return $year;
+}
+
+function moya_promotion_start_date(string $text): ?DateTimeImmutable
+{
+    $months = moya_genitive_months();
+    $monthPattern = implode('|', array_keys($months));
+
+    if (preg_match('/\bod\s+(\d{1,2})\s+(' . $monthPattern . ')(?:\s+(\d{4}))?/iu', $text, $match) !== 1
+        && preg_match('/(\d{1,2})\s*[-–—]\s*\d{1,2}\s+(' . $monthPattern . ')/iu', $text, $match) !== 1) {
+        return null;
+    }
+
+    $monthName = function_exists('mb_strtolower') ? mb_strtolower($match[2], 'UTF-8') : strtolower($match[2]);
+    $month = $months[$monthName] ?? null;
+    $day = (int) $match[1];
+
+    if ($month === null || !checkdate($month, $day, 2000)) {
+        return null;
+    }
+
+    $year = isset($match[3]) && $match[3] !== '' ? (int) $match[3] : moya_resolve_year($month, $day);
+
+    if (!checkdate($month, $day, $year)) {
+        return null;
+    }
+
+    return new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+}
+
+function moya_promotion_end_date(string $text): ?DateTimeImmutable
+{
+    $months = moya_genitive_months();
+    $monthPattern = implode('|', array_keys($months));
+
+    if (preg_match('/do\s+końca\s+(' . $monthPattern . ')(?:\s+(\d{4}))?/iu', $text, $match) === 1) {
+        $monthName = function_exists('mb_strtolower') ? mb_strtolower($match[1], 'UTF-8') : strtolower($match[1]);
+        $month = $months[$monthName] ?? null;
+
+        if ($month !== null) {
+            $year = isset($match[2]) && $match[2] !== '' ? (int) $match[2] : moya_resolve_year($month, 1);
+            $firstDay = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+
+            return $firstDay->modify('last day of this month');
+        }
+    }
+
+    if (preg_match('/do\s+(\d{1,2})\s+(' . $monthPattern . ')(?:\s+(\d{4}))?/iu', $text, $match) === 1) {
+        $monthName = function_exists('mb_strtolower') ? mb_strtolower($match[2], 'UTF-8') : strtolower($match[2]);
+        $month = $months[$monthName] ?? null;
+        $day = (int) $match[1];
+
+        if ($month !== null && checkdate($month, $day, 2000)) {
+            $year = isset($match[3]) && $match[3] !== '' ? (int) $match[3] : moya_resolve_year($month, $day);
+
+            if (checkdate($month, $day, $year)) {
+                return new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+            }
+        }
+    }
+
+    return null;
+}
+
+function fetch_moya_fuel_promotions(): array
+{
+    $fetchedAt = new DateTimeImmutable();
+    $sourceUrl = moya_fuel_promotion_url();
+
+    if ($sourceUrl === null || $sourceUrl === '') {
+        return [
+            'url' => moya_promotions_source_url(),
+            'items' => [],
+            'warnings' => ['Nie udało się ustalić adresu promocji paliwowej MOYA.'],
+            'warning' => 'Nie udało się ustalić adresu promocji paliwowej MOYA.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'moya_no_url',
+        ];
+    }
+
+    $html = http_get($sourceUrl);
+
+    if (!is_string($html) || trim($html) === '') {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => ['Nie udało się pobrać komunikatu o promocji paliwowej MOYA.'],
+            'warning' => 'Nie udało się pobrać komunikatu o promocji paliwowej MOYA.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'moya_failed',
+        ];
+    }
+
+    $lines = html_to_clean_lines($html);
+    $text = clean_text(implode(' ', $lines));
+    $text = preg_replace('/(\d+)\s*grosz(?:y|e|a)?\s+na\s+litrze/iu', '$1 gr/l', $text) ?? $text;
+
+    $fuelSignals = 0;
+    foreach (['pb95', 'pb98', 'olej napędowy', 'olej napedowy', 'benzyn', 'paliw', 'tankuj'] as $needle) {
+        if (text_contains_ci($text, $needle)) {
+            $fuelSignals++;
+        }
+    }
+
+    $grValues = [];
+    if (preg_match_all('/([0-9]{1,3})\s*gr\s*\/\s*l/iu', $text, $grMatches) > 0) {
+        $grValues = array_values(array_unique(array_map('intval', $grMatches[1])));
+        sort($grValues);
+    }
+
+    $hasPromotion = text_contains_ci($text, 'promocj') || text_contains_ci($text, 'rabat');
+
+    if (!$hasPromotion || $fuelSignals < 2 || $grValues === []) {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Nie znaleziono aktualnej promocji paliwowej MOYA.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'moya_no_fuel_promo',
+        ];
+    }
+
+    $maxGr = (int) max($grValues);
+    $baseGr = $maxGr;
+
+    if (preg_match('/podstawow\w*\s+rabat\w*\s+w\s+wysoko\w+\s+(\d{1,3})/iu', $text, $baseMatch) === 1) {
+        $baseGr = (int) $baseMatch[1];
+    }
+
+    $from = moya_promotion_start_date($text);
+    $to = moya_promotion_end_date($text);
+
+    if ($to instanceof DateTimeImmutable && $to->format('Y-m-d') < (new DateTimeImmutable('today'))->format('Y-m-d')) {
+        return [
+            'url' => $sourceUrl,
+            'items' => [],
+            'warnings' => [],
+            'warning' => 'Promocja paliwowa MOYA już się zakończyła.',
+            'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+            'sourceMode' => 'moya_expired',
+        ];
+    }
+
+    $dateRange = [
+        'fromLabel' => $from?->format('d.m.Y'),
+        'toLabel' => $to?->format('d.m.Y'),
+        'fromIso' => $from instanceof DateTimeImmutable ? $from->format('Y-m-d') : (new DateTimeImmutable('today'))->format('Y-m-d'),
+        'toIso' => $to?->format('Y-m-d'),
+        'rangeLabel' => ($from instanceof DateTimeImmutable && $to instanceof DateTimeImmutable)
+            ? $from->format('d.m.Y') . ' - ' . $to->format('d.m.Y')
+            : ($to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null),
+    ];
+
+    $description = sprintf(
+        '%d gr/l na benzyny PB95 i PB98 oraz olej napędowy ON i ON MOYA Power z cotygodniowym kuponem w aplikacji Super MOYA, do %d gr/l przy jednoczesnym zakupie produktów sklepowych lub Caffe MOYA za min. 10 zł. Rabat naliczany do 50 litrów na transakcję.',
+        $baseGr,
+        $maxGr
+    );
+
+    $item = build_station_promotion_payload(
+        'MOYA',
+        'Letnie oszczędności z aplikacją Super MOYA',
+        $description,
+        $sourceUrl,
+        moya_promotions_source_url(),
+        $dateRange
+    );
+    $item['discountLabel'] = 'do ' . $maxGr . ' gr/l';
+    $item['discountValueGrPerL'] = $maxGr;
+    $item['discountIsUpTo'] = true;
+    $item['sourceMode'] = 'moya_fuel_promotions';
+
+    $items = [$item];
+    station_promotions_sort($items);
+    mark_top_station_promotions($items);
+
+    return [
+        'url' => $sourceUrl,
+        'items' => $items,
+        'warnings' => [],
+        'warning' => null,
+        'fetchedAtLabel' => $fetchedAt->format('d.m.Y H:i'),
+        'sourceMode' => 'moya_fuel_promotions',
+    ];
+}
+
 function carry_over_station_promotions(array $previousItems, array $freshNetworks): array
 {
     if ($previousItems === []) {
@@ -2315,11 +2593,12 @@ function fetch_station_promotions(array $previousItems = []): array
     $orlenVitayPromotions = fetch_orlen_vitay_fuel_promotions();
     $shellOfficialPromotions = fetch_shell_fuel_promotions();
     $circlekPromotions = fetch_circlek_fuel_promotions();
+    $moyaPromotions = fetch_moya_fuel_promotions();
 
     $items = [];
     $freshNetworks = [];
 
-    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions, $circlekPromotions] as $source) {
+    foreach ([$bpOfficialPromotions, $orlenVitayPromotions, $shellOfficialPromotions, $circlekPromotions, $moyaPromotions] as $source) {
         if (!is_array($source)) {
             continue;
         }
@@ -2351,6 +2630,7 @@ function fetch_station_promotions(array $previousItems = []): array
         'ORLEN' => $orlenVitayPromotions['warnings'] ?? [],
         'Shell' => $shellOfficialPromotions['warnings'] ?? [],
         'Circle K' => $circlekPromotions['warnings'] ?? [],
+        'MOYA' => $moyaPromotions['warnings'] ?? [],
     ];
 
     $warnings = [];
@@ -2556,12 +2836,14 @@ $promoFuelMap = [
     'Circle K' => ['benzyna' => [35, true, 30], 'diesel' => [35, true, 30], 'lpg' => [10, false]],
     'Shell' => ['benzyna' => [35, false], 'diesel' => [35, false], 'lpg' => [15, false]],
     'ORLEN' => ['benzyna' => [35, true, 20], 'diesel' => [35, true, 20]],
+    'MOYA' => ['benzyna' => [40, true, 30], 'diesel' => [40, true, 30]],
 ];
 $promoConditions = [
     'BP' => 'bezwarunkowo',
     'Shell' => 'dowolny produkt Shell',
     'ORLEN' => 'min. 5 zł zakupów',
     'Circle K' => 'na miles',
+    'MOYA' => 'aplikacja Super MOYA',
 ];
 $promoData = [];
 foreach (($stationPromotions['items'] ?? []) as $promoItem) {
@@ -3191,7 +3473,7 @@ if ($isCronRefresh) {
                     <h1 class="hero-title font-display fw-bold display-5 mb-3">Monitor promocji paliwowych</h1>
                     <p class="hero-copy mb-0">
                         Zestawienie <strong>aktualnych promocji paliwowych</strong> ze stacji
-                        (BP, Circle K, Shell, ORLEN) z automatycznym wykrywaniem najlepszej okazji
+                        (BP, Circle K, Shell, ORLEN, MOYA) z automatycznym wykrywaniem najlepszej okazji
                         na benzynę i olej napędowy.
                     </p>
                 </div>
@@ -3263,7 +3545,8 @@ if ($isCronRefresh) {
             <a class="source-link" href="<?= e(bp_official_promotions_source_url()) ?>" target="_blank" rel="noreferrer">BP</a>,
             <a class="source-link" href="<?= e(circlek_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Circle K</a>,
             <a class="source-link" href="<?= e(shell_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Shell</a>,
-            <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>.
+            <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>,
+            <a class="source-link" href="<?= e(moya_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOYA</a>.
             <br>
             Kod źródłowy projektu:
             <a class="source-link" href="https://github.com/udnn1/monitor-promocji-paliwowych" target="_blank" rel="noreferrer">github.com/udnn1/monitor-promocji-paliwowych</a>.
@@ -3384,7 +3667,7 @@ if ($isCronRefresh) {
                 <div class="hero-cond">${top.it.cond}</div>
               </div>
             </div>
-            <div class="hero-big"><span class="n">${top.off.upto?'do ':'−'}${top.off.v}<span class="afx-ghost" aria-hidden="true">${top.off.upto?' do':'−'}</span></span><small>gr / litr · benzyna i diesel</small></div>
+            <div class="hero-big"><span class="n">${top.off.upto?'do −':'−'}${top.off.v}<span class="afx-ghost" aria-hidden="true">${top.off.upto?'do −':'−'}</span></span><small>gr / litr · benzyna i diesel</small></div>
             <div class="hero-foot">
               <span class="hero-chip">💰 ~${save0} zł przy 50 l</span>
               ${dl0!==null?`<span class="hero-chip">⏳ zostało ${dl0} dni</span>`:''}
@@ -3415,8 +3698,8 @@ if ($isCronRefresh) {
                   </div>
                 </div>
                 <div class="pi-rabaty">
-                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do':'−'}</span>${o.upto?' ':''}${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
-                  ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do ':'−'}${lpg.v} gr/l</span>`:''}
+                  <div class="pi-disc"><div class="num"><span class="pfx">${o.upto?'do':'−'}</span>${o.upto?' −':''}${o.v}</div><div class="unit">gr/l · Pb i ON</div></div>
+                  ${lpg?`<span class="pi-lpg">LPG ${lpg.upto?'do −':'−'}${lpg.v} gr/l</span>`:''}
                 </div>
               </div>
               <div class="divider"></div>
