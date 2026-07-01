@@ -2637,7 +2637,11 @@ function mol_promo_gr_values(string $text): array
         }
     }
 
-    return ['lpg' => $lpg, 'max' => $nonLpg !== [] ? (int) max($nonLpg) : 0];
+    return [
+        'lpg' => $lpg,
+        'max' => $nonLpg !== [] ? (int) max($nonLpg) : 0,
+        'base' => $nonLpg !== [] ? (int) min($nonLpg) : 0,
+    ];
 }
 
 function fetch_mol_fuel_promotions(): array
@@ -2759,6 +2763,12 @@ function fetch_mol_fuel_promotions(): array
     );
     $item['discountLabel'] = $maxGr . ' gr/l';
     $item['discountValueGrPerL'] = $maxGr;
+
+    if ($gr['base'] === $maxGr) {
+        $item['discountIsUpTo'] = false;
+        $item['discountConditionPenalty'] = 0;
+    }
+
     $item['sourceMode'] = 'mol_fuel_promotions';
 
     $items = [$item];
