@@ -2587,6 +2587,157 @@ function carry_over_station_promotions(array $previousItems, array $freshNetwork
     return $carried;
 }
 
+function promo_display_fallback(string $network): array
+{
+    $fuelMap = [
+        'BP' => ['benzyna' => [35, 35], 'diesel' => [35, 35], 'lpg' => [15, 15]],
+        'Circle K' => ['benzyna' => [30, 35], 'diesel' => [30, 35], 'lpg' => [10, 10]],
+        'Shell' => ['benzyna' => [20, 35], 'diesel' => [20, 35], 'lpg' => [15, 15]],
+        'ORLEN' => ['benzyna' => [20, 35], 'diesel' => [20, 35]],
+        'MOYA' => ['benzyna' => [30, 40], 'diesel' => [30, 40]],
+    ];
+    $tierMap = [
+        'BP' => ['baseCond' => 'na paliwa, z aplikacją BPme', 'maxCond' => null, 'when' => null],
+        'Circle K' => ['baseCond' => 'na paliwa miles (standardowe)', 'maxCond' => 'na paliwa miles+ (premium)', 'when' => null],
+        'Shell' => ['baseCond' => 'standardowo, bez dodatkowych zakupów', 'maxCond' => 'przy zakupie dowolnego produktu Shell (np. Café, myjnia)', 'when' => null],
+        'ORLEN' => ['baseCond' => 'z kuponem w aplikacji ORLEN VITAY', 'maxCond' => 'przy zakupach pozapaliwowych min. 5 zł', 'when' => 'tylko w weekendy (pt.–ndz.)'],
+        'MOYA' => ['baseCond' => 'z kuponem w aplikacji Super MOYA', 'maxCond' => 'przy zakupie w sklepie / Caffe MOYA min. 10 zł', 'when' => null],
+    ];
+
+    $fuels = [];
+    foreach (($fuelMap[$network] ?? []) as $fuel => $spec) {
+        $fuels[$fuel] = ['g' => (int) $spec[0], 'v' => (int) $spec[1], 'upto' => $spec[1] > $spec[0]];
+    }
+
+    return [
+        'fuels' => $fuels,
+        'tier' => $tierMap[$network] ?? ['baseCond' => '', 'maxCond' => null, 'when' => null],
+    ];
+}
+
+function promo_extract_conditions(string $network, string $text, string $low, int $base, int $max): array
+{
+    $fallback = promo_display_fallback($network)['tier'];
+
+    $minZl = null;
+    if (preg_match('/min\.?\s*(\d+(?:[.,]\d+)?)\s*zł/iu', $text, $m) === 1) {
+        $minZl = str_replace('.', ',', $m[1]);
+    }
+
+    $app = null;
+    if (stripos($text, 'BPme') !== false) {
+        $app = 'z aplikacją BPme';
+    } elseif (stripos($text, 'VITAY') !== false) {
+        $app = 'z kuponem w aplikacji ORLEN VITAY';
+    } elseif (stripos($low, 'super moya') !== false) {
+        $app = 'z kuponem w aplikacji Super MOYA';
+    } elseif (stripos($text, 'ClubSmart') !== false) {
+        $app = 'w aplikacji Shell ClubSmart';
+    } elseif (stripos($text, 'Circle K extra') !== false || stripos($low, 'miles') !== false) {
+        $app = 'z kuponem w aplikacji Circle K';
+    }
+
+    $when = null;
+    if (preg_match('/\bw\s+weekend|obowiązuje\s+w\s+weekend|weekendow/iu', $text) === 1) {
+        $when = 'tylko w weekendy (pt.–ndz.)';
+    }
+
+    $baseCond = $app ?? $fallback['baseCond'];
+    $maxCond = null;
+
+    if ($max > $base) {
+        if (stripos($low, 'miles+') !== false) {
+            $baseCond = 'na paliwa miles (standardowe)';
+            $maxCond = 'na paliwa miles+ (premium)';
+        } elseif ($minZl !== null) {
+            $maxCond = 'przy zakupach pozapaliwowych min. ' . $minZl . ' zł';
+        } elseif (stripos($low, 'produkt') !== false) {
+            if (stripos($low, 'standardowo') !== false || stripos($low, 'bez dodatkowych') !== false) {
+                $baseCond = 'standardowo, bez dodatkowych zakupów';
+            }
+            $maxCond = 'przy zakupie dowolnego produktu' . ($network === 'Shell' ? ' Shell' : '');
+        } else {
+            $maxCond = $fallback['maxCond'];
+        }
+    }
+
+    if (trim((string) $baseCond) === '') {
+        $baseCond = $fallback['baseCond'];
+    }
+
+    return ['baseCond' => $baseCond, 'maxCond' => $maxCond, 'when' => $when ?? $fallback['when']];
+}
+
+function promo_extract_display(array $item): array
+{
+    $network = (string) ($item['network'] ?? '');
+    $text = clean_text(((string) ($item['title'] ?? '')) . ' ' . ((string) ($item['description'] ?? '')));
+    $low = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
+
+    $max = is_numeric($item['discountValueGrPerL'] ?? null) ? (int) $item['discountValueGrPerL'] : null;
+    $upto = !empty($item['discountIsUpTo']);
+
+    $clauses = preg_split('/[.,;]/u', $text) ?: [$text];
+    $lpg = null;
+    $nonLpgVals = [];
+
+    foreach ($clauses as $clause) {
+        $isLpg = stripos($clause, 'lpg') !== false || stripos($clause, 'autogas') !== false;
+
+        if (preg_match_all('/(\d{1,3})\s*gr\s*\/\s*l/iu', $clause, $mm) > 0) {
+            foreach ($mm[1] as $rawVal) {
+                $val = (int) $rawVal;
+
+                if ($isLpg) {
+                    if ($lpg === null) {
+                        $lpg = $val;
+                    }
+                } else {
+                    $nonLpgVals[] = $val;
+                }
+            }
+        }
+    }
+
+    $nonLpgVals = array_values(array_unique($nonLpgVals));
+    sort($nonLpgVals);
+
+    if ($max === null && $nonLpgVals !== []) {
+        $max = (int) max($nonLpgVals);
+    }
+
+    if ($max === null) {
+        return promo_display_fallback($network);
+    }
+
+    $tiered = $upto || preg_match('/standardowo|bez\s+dodatkowych/iu', $text) === 1;
+    $base = $max;
+
+    if ($tiered) {
+        $below = array_values(array_filter($nonLpgVals, static fn (int $v): bool => $v < $max));
+
+        if ($below !== []) {
+            $base = (int) min($below);
+        }
+    }
+
+    $fuels = [
+        'benzyna' => ['g' => $base, 'v' => $max, 'upto' => $max > $base],
+        'diesel' => ['g' => $base, 'v' => $max, 'upto' => $max > $base],
+    ];
+
+    if ($lpg !== null) {
+        $fuels['lpg'] = ['g' => $lpg, 'v' => $lpg, 'upto' => false];
+    } elseif (isset(promo_display_fallback($network)['fuels']['lpg'])) {
+        $fuels['lpg'] = promo_display_fallback($network)['fuels']['lpg'];
+    }
+
+    return [
+        'fuels' => $fuels,
+        'tier' => promo_extract_conditions($network, $text, $low, $base, $max),
+    ];
+}
+
 function fetch_station_promotions(array $previousItems = []): array
 {
     $bpOfficialPromotions = fetch_bp_official_fuel_promotions();
@@ -2614,6 +2765,13 @@ function fetch_station_promotions(array $previousItems = []): array
     foreach (carry_over_station_promotions($previousItems, $freshNetworks) as $carriedItem) {
         $items[] = $carriedItem;
     }
+
+    foreach ($items as &$displayItem) {
+        if (is_array($displayItem)) {
+            $displayItem['display'] = promo_extract_display($displayItem);
+        }
+    }
+    unset($displayItem);
 
     station_promotions_sort($items);
     mark_top_station_promotions($items);
@@ -2831,13 +2989,6 @@ if (isset($stationPromotions['items']) && is_array($stationPromotions['items']))
     mark_top_station_promotions($stationPromotions['items']);
 }
 
-$promoFuelMap = [
-    'BP' => ['benzyna' => [35, false], 'diesel' => [35, false], 'lpg' => [15, false]],
-    'Circle K' => ['benzyna' => [35, true, 30], 'diesel' => [35, true, 30], 'lpg' => [10, false]],
-    'Shell' => ['benzyna' => [35, true, 20], 'diesel' => [35, true, 20], 'lpg' => [15, false]],
-    'ORLEN' => ['benzyna' => [35, true, 20], 'diesel' => [35, true, 20]],
-    'MOYA' => ['benzyna' => [40, true, 30], 'diesel' => [40, true, 30]],
-];
 $promoConditions = [
     'BP' => 'bezwarunkowo',
     'Shell' => 'dowolny produkt Shell',
@@ -2845,13 +2996,7 @@ $promoConditions = [
     'Circle K' => 'na miles',
     'MOYA' => 'aplikacja Super MOYA',
 ];
-$promoTierText = [
-    'BP' => ['baseCond' => 'na paliwa, z aplikacją BPme', 'maxCond' => null, 'when' => null],
-    'Shell' => ['baseCond' => 'standardowo, bez dodatkowych zakupów', 'maxCond' => 'przy zakupie dowolnego produktu Shell (np. Café, myjnia)', 'when' => null],
-    'Circle K' => ['baseCond' => 'na paliwa miles (standardowe)', 'maxCond' => 'na paliwa miles+ (premium)', 'when' => null],
-    'ORLEN' => ['baseCond' => 'z kuponem w aplikacji ORLEN VITAY', 'maxCond' => 'przy zakupach pozapaliwowych min. 5 zł', 'when' => 'tylko w weekendy (pt.–ndz.)'],
-    'MOYA' => ['baseCond' => 'z kuponem w aplikacji Super MOYA', 'maxCond' => 'przy zakupie w sklepie / Caffe MOYA min. 10 zł', 'when' => null],
-];
+$promoKnownNetworks = ['BP', 'Circle K', 'Shell', 'ORLEN', 'MOYA'];
 $promoData = [];
 foreach (($stationPromotions['items'] ?? []) as $promoItem) {
     if (!is_array($promoItem)) {
@@ -2860,20 +3005,28 @@ foreach (($stationPromotions['items'] ?? []) as $promoItem) {
 
     $promoNet = (string) ($promoItem['network'] ?? '');
 
-    if (!isset($promoFuelMap[$promoNet])) {
+    if (!in_array($promoNet, $promoKnownNetworks, true)) {
+        continue;
+    }
+
+    $promoDisplay = isset($promoItem['display']) && is_array($promoItem['display'])
+        ? $promoItem['display']
+        : promo_extract_display($promoItem);
+
+    if (empty($promoDisplay['fuels'])) {
         continue;
     }
 
     $promoFuels = [];
-    foreach ($promoFuelMap[$promoNet] as $promoFuel => $promoSpec) {
+    foreach ($promoDisplay['fuels'] as $promoFuel => $promoSpec) {
         $promoFuels[$promoFuel] = [
-            'v' => (int) $promoSpec[0],
-            'g' => isset($promoSpec[2]) ? (int) $promoSpec[2] : (int) $promoSpec[0],
-            'upto' => (bool) $promoSpec[1],
+            'v' => (int) ($promoSpec['v'] ?? 0),
+            'g' => (int) ($promoSpec['g'] ?? ($promoSpec['v'] ?? 0)),
+            'upto' => !empty($promoSpec['upto']),
         ];
     }
 
-    $promoTier = $promoTierText[$promoNet] ?? ['baseCond' => $promoConditions[$promoNet] ?? '', 'maxCond' => null, 'when' => null];
+    $promoTier = $promoDisplay['tier'] ?? ['baseCond' => $promoConditions[$promoNet] ?? '', 'maxCond' => null, 'when' => null];
 
     $promoData[] = [
         'net' => $promoNet,
