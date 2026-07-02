@@ -3074,12 +3074,6 @@ function fetch_fuel_averages(): ?array
     $cached = read_json_array_file($path);
     $now = time();
 
-    if (is_array($cached) && isset($cached['fetchedAt'])
-        && ($now - (int) $cached['fetchedAt']) < 43200
-        && isset($cached['benzyna'], $cached['diesel'])) {
-        return $cached;
-    }
-
     $script = __DIR__ . '/paliwomapa_scrape.py';
     $fresh = null;
 
@@ -3211,25 +3205,31 @@ if ($isUrlRefresh) {
     if (!empty($manualRefreshCooldown['active'])) {
         redirect_after_manual_refresh('refresh_cooldown');
     }
+
+    $manualRefreshCooldown = manual_refresh_cooldown_claim();
+
+    if (empty($manualRefreshCooldown['allowed'])) {
+        redirect_after_manual_refresh('refresh_cooldown');
+    }
+
+    if (function_exists('shell_exec')) {
+        $phpBinary = is_file('/usr/bin/php') ? '/usr/bin/php' : 'php';
+        $backgroundCmd = 'setsid ' . escapeshellarg($phpBinary) . ' ' . escapeshellarg(__FILE__)
+            . ' --refresh-cache >/dev/null 2>&1 &';
+        @shell_exec($backgroundCmd);
+    }
+
+    redirect_after_manual_refresh('refresh_started');
 }
 
-if ($isRefresh) {
-    $refreshLock = acquire_dashboard_refresh_lock($isCronRefresh);
+if ($isCronRefresh) {
+    $refreshLock = acquire_dashboard_refresh_lock(true);
 
     if (!is_resource($refreshLock)) {
         $existingSnapshot = load_dashboard_snapshot();
         $snapshot = is_array($existingSnapshot) ? $existingSnapshot : empty_dashboard_snapshot();
         $refreshStatus = 'refresh_busy_existing_kept';
     } else {
-        if ($isUrlRefresh) {
-            $manualRefreshCooldown = manual_refresh_cooldown_claim();
-
-            if (empty($manualRefreshCooldown['allowed'])) {
-                release_dashboard_refresh_lock($refreshLock);
-                redirect_after_manual_refresh('refresh_cooldown');
-            }
-        }
-
         try {
             $refreshResult = refresh_dashboard_snapshot_for_target(null);
             $snapshot = is_array($refreshResult['snapshot'] ?? null)
@@ -3239,10 +3239,6 @@ if ($isRefresh) {
         } finally {
             release_dashboard_refresh_lock($refreshLock);
         }
-    }
-
-    if ($isUrlRefresh) {
-        redirect_after_manual_refresh((string) ($refreshStatus ?? 'unknown'));
     }
 } else {
     $snapshot = load_dashboard_snapshot();
@@ -3366,7 +3362,10 @@ $manualRefreshClass = 'alert-info';
 if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
     $status = isset($_GET['status']) ? (string) $_GET['status'] : '';
 
-    if ($status === 'fresh_saved') {
+    if ($status === 'refresh_started') {
+        $manualRefreshMessage = 'Odświeżanie uruchomione w tle — pobieram wszystkie promocje i średnie ceny (potrwa ok. 2 min). Odśwież stronę za chwilę, żeby zobaczyć nowe dane.';
+        $manualRefreshClass = 'alert-info';
+    } elseif ($status === 'fresh_saved') {
         $manualRefreshMessage = 'Promocje zostały ręcznie odświeżone. Aktualny czas zapisu: ' . $lastDataUpdateLabel . '.';
         $manualRefreshClass = 'alert-success';
     } elseif ($status === 'refresh_cooldown') {
