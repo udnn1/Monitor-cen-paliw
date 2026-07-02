@@ -4142,7 +4142,18 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
     const manualRefreshButton = document.getElementById('manualRefreshButton');
 
     if (manualRefreshButton) {
-        manualRefreshButton.addEventListener('click', () => {
+        manualRefreshButton.addEventListener('click', (event) => {
+            if (manualRefreshButton.classList.contains('is-loading')) {
+                event.preventDefault();
+                return;
+            }
+
+            const target = manualRefreshButton.getAttribute('href');
+            if (!target) {
+                return;
+            }
+
+            event.preventDefault();
             manualRefreshButton.classList.add('is-loading');
             manualRefreshButton.setAttribute('aria-busy', 'true');
 
@@ -4150,6 +4161,10 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             if (label) {
                 label.textContent = 'Odświeżanie...';
             }
+
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                window.location.href = target;
+            }));
         });
     }
 
