@@ -3152,8 +3152,8 @@ function fuel_averages_history_append(array $fresh): void
 
     usort($history, static fn ($a, $b): int => strcmp((string) ($a['date'] ?? ''), (string) ($b['date'] ?? '')));
 
-    if (count($history) > 90) {
-        $history = array_slice($history, -90);
+    if (count($history) > 365) {
+        $history = array_slice($history, -365);
     }
 
     write_json_array_file(fuel_averages_history_path(), $history);
