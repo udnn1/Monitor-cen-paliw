@@ -4,7 +4,6 @@ os.environ.setdefault("HOME", "/var/lib/paliwo-browser")
 
 CHROME = "/opt/pomost-chromium/chrome"
 MOL_URL = "https://molpolska.pl/pl/kierowcy/aktualne-promocje"
-PM_URL = "https://paliwomapa.pl/"
 EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️‍←-⇿⌀-⏿]")
 
 
@@ -126,69 +125,6 @@ def scrape_mol(browser):
     return out
 
 
-def pm_price(block, label):
-    m = re.search(label + r"\s*[:|]?\s*([0-9]+[.,][0-9]{2})", block, re.I)
-    return float(m.group(1).replace(",", ".")) if m else None
-
-
-def scrape_pm(browser):
-    ctx = browser.new_context(
-        geolocation={"latitude": 52.23, "longitude": 21.01},
-        permissions=["geolocation"],
-        locale="pl-PL",
-    )
-    page = ctx.new_page()
-    block = None
-    try:
-        page.goto(PM_URL, wait_until="domcontentloaded", timeout=60000)
-        for _ in range(16):
-            page.wait_for_timeout(1200)
-            if "moment" not in page.title().lower():
-                break
-        for _ in range(18):
-            page.wait_for_timeout(1200)
-            body = page.inner_text("body")
-            m = re.search(r"ŚREDNIE CENY PALIW W POLSCE[\s\S]{0,300}?aktualizacja:\s*\d{1,2}\.\d{1,2}\.\d{4}", body)
-            if m and len(re.findall(r"[0-9]+[.,][0-9]{2}", m.group(0))) >= 3:
-                block = m.group(0)
-                break
-    except Exception:
-        ctx.close()
-        return None
-
-    ctx.close()
-
-    if not block:
-        return None
-
-    benzyna = pm_price(block, "PB\\s*95")
-    diesel = pm_price(block, r"\bON")
-
-    def ok(v):
-        return isinstance(v, float) and 4 <= v <= 12
-
-    if not (ok(benzyna) and ok(diesel)):
-        return None
-
-    stations = None
-    ms = re.search(r"\((\d+)\s*stacji\)", block)
-    if ms:
-        stations = int(ms.group(1))
-
-    date_iso = None
-    md = re.search(r"aktualizacja:\s*(\d{1,2})\.(\d{1,2})\.(\d{4})", block)
-    if md:
-        date_iso = "%04d-%02d-%02d" % (int(md.group(3)), int(md.group(2)), int(md.group(1)))
-
-    return {
-        "benzyna": benzyna,
-        "pb98": pm_price(block, "PB\\s*98"),
-        "diesel": diesel,
-        "lpg": pm_price(block, "LPG"),
-        "stations": stations,
-        "date": date_iso,
-    }
-
 
 def main():
     try:
@@ -201,18 +137,14 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=False,
+                headless=True,
                 executable_path=CHROME,
-                args=["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1400,1000"],
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
             try:
                 out["mol"] = scrape_mol(browser)
             except Exception:
                 out["mol"] = []
-            try:
-                out["averages"] = scrape_pm(browser)
-            except Exception:
-                out["averages"] = None
             browser.close()
     except Exception:
         pass

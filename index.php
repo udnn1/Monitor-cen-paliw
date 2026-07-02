@@ -2607,7 +2607,7 @@ function browser_scrape(): array
 
     if (is_file($script) && function_exists('shell_exec')) {
         $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
-            . ' timeout 210 xvfb-run -a python3 ' . escapeshellarg($script) . ' 2>/dev/null';
+            . ' timeout 120 python3 ' . escapeshellarg($script) . ' 2>/dev/null';
         $out = shell_exec($cmd);
 
         if (is_string($out) && trim($out) !== '') {
@@ -3087,28 +3087,80 @@ function fuel_averages_cache_path(): string
     return cache_dir() . '/fuel-averages.json';
 }
 
+function fetch_paliwomapa_averages(): ?array
+{
+    $key = 'sb_publishable_HeTnHlo6wWxGZKk02pYO8w_UsYG0PuP';
+    $base = 'https://hcxxwweqkkjspytgyool.supabase.co/rest/v1/app_docs'
+        . '?select=data&collection_name=eq.prices&parent_path=is.null';
+
+    $sums = ['pb95' => 0.0, 'pb98' => 0.0, 'on' => 0.0, 'lpg' => 0.0];
+    $counts = ['pb95' => 0, 'pb98' => 0, 'on' => 0, 'lpg' => 0];
+    $total = 0;
+
+    for ($offset = 0; $offset < 20000; $offset += 1000) {
+        $raw = http_get($base, [
+            'apikey: ' . $key,
+            'Authorization: Bearer ' . $key,
+            'Range: ' . $offset . '-' . ($offset + 999),
+            'Accept: application/json',
+        ]);
+
+        if (!is_string($raw) || trim($raw) === '') {
+            break;
+        }
+
+        $rows = json_decode($raw, true);
+
+        if (!is_array($rows) || $rows === []) {
+            break;
+        }
+
+        foreach ($rows as $row) {
+            $data = is_array($row) ? ($row['data'] ?? null) : null;
+
+            if (!is_array($data)) {
+                continue;
+            }
+
+            $total++;
+
+            foreach (['pb95', 'pb98', 'on', 'lpg'] as $fuel) {
+                if (isset($data[$fuel]) && is_numeric($data[$fuel])) {
+                    $sums[$fuel] += (float) $data[$fuel];
+                    $counts[$fuel]++;
+                }
+            }
+        }
+
+        if (count($rows) < 1000) {
+            break;
+        }
+    }
+
+    if ($counts['pb95'] === 0 || $counts['on'] === 0) {
+        return null;
+    }
+
+    $avg = static fn (string $fuel): ?float => $counts[$fuel] > 0 ? round($sums[$fuel] / $counts[$fuel], 2) : null;
+
+    return [
+        'benzyna' => $avg('pb95'),
+        'pb98' => $avg('pb98'),
+        'diesel' => $avg('on'),
+        'lpg' => $avg('lpg'),
+        'stations' => $total,
+        'date' => (new DateTimeImmutable('today'))->format('Y-m-d'),
+        'fetchedAt' => time(),
+        'source' => 'paliwomapa.pl',
+    ];
+}
+
 function fetch_fuel_averages(): ?array
 {
     $path = fuel_averages_cache_path();
     $cached = read_json_array_file($path);
-    $now = time();
 
-    $decoded = browser_scrape()['averages'];
-    $fresh = null;
-
-    if (is_array($decoded) && isset($decoded['benzyna'], $decoded['diesel'])
-        && is_numeric($decoded['benzyna']) && is_numeric($decoded['diesel'])) {
-        $fresh = [
-            'benzyna' => (float) $decoded['benzyna'],
-            'pb98' => isset($decoded['pb98']) && is_numeric($decoded['pb98']) ? (float) $decoded['pb98'] : null,
-            'diesel' => (float) $decoded['diesel'],
-            'lpg' => isset($decoded['lpg']) && is_numeric($decoded['lpg']) ? (float) $decoded['lpg'] : null,
-            'stations' => isset($decoded['stations']) ? (int) $decoded['stations'] : null,
-            'date' => isset($decoded['date']) && is_string($decoded['date']) ? $decoded['date'] : null,
-            'fetchedAt' => $now,
-            'source' => 'paliwomapa.pl',
-        ];
-    }
+    $fresh = fetch_paliwomapa_averages();
 
     if ($fresh !== null) {
         write_json_array_file($path, $fresh);
