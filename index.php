@@ -3587,6 +3587,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
 
         .shell { position: relative; min-height: 100vh; }
         .card-surface { background: var(--surface); border: 1px solid var(--line); box-shadow: 0 10px 28px var(--shadow); border-radius: 24px; }
+        .card-surface, .hero, .hero-panel, .panel, .mini, .hero-meta-card, .promo-item { background-clip: padding-box; }
 
         .hero-panel {
             overflow: hidden;
