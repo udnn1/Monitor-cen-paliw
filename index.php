@@ -2594,42 +2594,99 @@ function mol_promotions_source_url(): string
     return 'https://molpolska.pl/pl/kierowcy/aktualne-promocje';
 }
 
-function browser_scrape(): array
+function mol_content_url(string $path): string
 {
-    static $cachedResult = null;
+    return 'https://api.molpolska.pl/content?path=' . $path . '&lang=pl&recentlyVisitedProductIds=';
+}
 
-    if ($cachedResult !== null) {
-        return $cachedResult;
+function mol_fetch_content(string $path): ?array
+{
+    $raw = http_get(mol_content_url($path), ['Accept: application/json']);
+
+    if (!is_string($raw) || trim($raw) === '') {
+        return null;
     }
 
-    $cachedResult = ['mol' => [], 'averages' => null];
-    $script = __DIR__ . '/browser_scrape.py';
+    $data = json_decode($raw, true);
 
-    if (is_file($script) && function_exists('shell_exec')) {
-        $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
-            . ' timeout 120 python3 ' . escapeshellarg($script) . ' 2>/dev/null';
-        $out = shell_exec($cmd);
+    return is_array($data) ? $data : null;
+}
 
-        if (is_string($out) && trim($out) !== '') {
-            $decoded = json_decode(trim($out), true);
+function mol_html_to_text(string $html): string
+{
+    $html = preg_replace('/<(script|style)\b[^>]*>.*?<\/\1>/isu', '', $html) ?? $html;
+    $html = preg_replace('/<br\s*\/?>/iu', ' ', $html) ?? $html;
+    $html = preg_replace('/<\/(p|div|li|h[1-6])>/iu', ' ', $html) ?? $html;
+    $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = preg_replace('/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}\x{200D}\x{2190}-\x{21FF}\x{2300}-\x{23FF}]/u', ' ', $text) ?? $text;
 
-            if (is_array($decoded)) {
-                if (is_array($decoded['mol'] ?? null)) {
-                    $cachedResult['mol'] = $decoded['mol'];
-                }
-                if (is_array($decoded['averages'] ?? null)) {
-                    $cachedResult['averages'] = $decoded['averages'];
-                }
-            }
-        }
+    return clean_text($text);
+}
+
+function mol_iso_date(?string $value): ?string
+{
+    if (!is_string($value)) {
+        return null;
     }
 
-    return $cachedResult;
+    return preg_match('/(\d{4})\.(\d{2})\.(\d{2})/', $value, $m) === 1
+        ? $m[1] . '-' . $m[2] . '-' . $m[3]
+        : null;
 }
 
 function mol_scrape_promotions(): array
 {
-    return browser_scrape()['mol'];
+    $data = mol_fetch_content('kierowcy/aktualne-promocje');
+    $items = $data['result']['published']['items'] ?? null;
+
+    if (!is_array($items)) {
+        return [];
+    }
+
+    $tiles = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $title = clean_text((string) ($item['title'] ?? ''));
+
+        if ($title === '') {
+            continue;
+        }
+
+        $teaser = mol_html_to_text((string) ($item['description'] ?? ''));
+        $path = (string) ($item['path'] ?? '');
+
+        $tiles[] = [
+            'title' => $title,
+            'text' => clean_text($title . ' ' . $teaser),
+            'url' => $path !== '' ? 'https://molpolska.pl/pl/' . ltrim($path, '/') : mol_promotions_source_url(),
+            'path' => $path,
+            'fromIso' => mol_iso_date($item['startDate'] ?? null),
+            'toIso' => mol_iso_date($item['endDate'] ?? null),
+        ];
+    }
+
+    foreach ($tiles as &$tile) {
+        $isFuel = preg_match('~\d{1,3}\s*gr\s*/\s*l~iu', $tile['text']) === 1;
+        $isNiche = preg_match('/magenta|wybranych\s+stacj/iu', $tile['text']) === 1;
+
+        if ($isFuel && !$isNiche && $tile['path'] !== '') {
+            $detail = mol_fetch_content($tile['path']);
+            $descHtml = is_array($detail) ? (string) ($detail['result']['description'] ?? '') : '';
+
+            if ($descHtml !== '') {
+                $full = mol_html_to_text($descHtml);
+                $cut = preg_split('/Najniższa cena/u', $full)[0] ?? $full;
+                $tile['text'] = clean_text($cut);
+            }
+        }
+    }
+    unset($tile);
+
+    return $tiles;
 }
 
 function mol_promo_gr_values(string $text): array
