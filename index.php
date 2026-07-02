@@ -4540,20 +4540,21 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         if (!canvas || typeof Chart === 'undefined' || !Array.isArray(FUEL_AVG_HISTORY) || FUEL_AVG_HISTORY.length === 0) {
             return;
         }
+        const hist = FUEL_AVG_HISTORY.slice(-31);
         const isDark = document.documentElement.dataset.theme === 'dark';
         const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(18,52,59,.08)';
         const tickColor = isDark ? 'rgba(233,243,241,.75)' : 'rgba(91,107,116,.95)';
-        const labels = FUEL_AVG_HISTORY.map(e => { const d = (e.date || '').split('-'); return d.length === 3 ? d[2] + '.' + d[1] : (e.date || ''); });
+        const labels = hist.map(e => { const d = (e.date || '').split('-'); return d.length === 3 ? d[2] + '.' + d[1] : (e.date || ''); });
         const defs = [
             { key: 'benzyna', label: 'PB95', color: '#1f8a70' },
             { key: 'pb98', label: 'PB98', color: '#e69a1a' },
             { key: 'diesel', label: 'ON', color: '#2c6fb0' },
             { key: 'lpg', label: 'LPG', color: '#c0498b' },
         ];
-        const pointR = FUEL_AVG_HISTORY.length > 25 ? 0 : 3;
+        const pointR = hist.length > 25 ? 0 : 3;
         const datasets = defs.map(d => ({
             label: d.label,
-            data: FUEL_AVG_HISTORY.map(e => (typeof e[d.key] === 'number' ? e[d.key] : null)),
+            data: hist.map(e => (typeof e[d.key] === 'number' ? e[d.key] : null)),
             borderColor: d.color, backgroundColor: d.color,
             tension: 0.3, spanGaps: true, pointRadius: pointR, pointHoverRadius: 4, borderWidth: 2,
         }));
