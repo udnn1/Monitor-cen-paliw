@@ -3596,6 +3596,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 linear-gradient(135deg, rgba(18, 52, 59, 0.97), rgba(31, 138, 112, 0.93)),
                 linear-gradient(160deg, rgba(244, 185, 66, 0.12), transparent 42%);
             color: #fff;
+            border-color: rgba(255, 255, 255, 0.14);
         }
 
         .hero-panel::after {
