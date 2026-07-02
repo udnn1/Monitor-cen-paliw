@@ -3110,10 +3110,53 @@ function fetch_fuel_averages(): ?array
 
     if ($fresh !== null) {
         write_json_array_file($path, $fresh);
+        fuel_averages_history_append($fresh);
         return $fresh;
     }
 
     return is_array($cached) && $cached !== [] ? $cached : null;
+}
+
+function fuel_averages_history_path(): string
+{
+    return cache_dir() . '/fuel-averages-history.json';
+}
+
+function fuel_averages_history(): array
+{
+    $history = read_json_array_file(fuel_averages_history_path());
+
+    return is_array($history) ? $history : [];
+}
+
+function fuel_averages_history_append(array $fresh): void
+{
+    if (empty($fresh['date']) || !is_string($fresh['date'])) {
+        return;
+    }
+
+    $date = $fresh['date'];
+    $history = fuel_averages_history();
+    $history = array_values(array_filter(
+        $history,
+        static fn ($entry): bool => is_array($entry) && (($entry['date'] ?? '') !== $date)
+    ));
+
+    $history[] = [
+        'date' => $date,
+        'benzyna' => $fresh['benzyna'] ?? null,
+        'pb98' => $fresh['pb98'] ?? null,
+        'diesel' => $fresh['diesel'] ?? null,
+        'lpg' => $fresh['lpg'] ?? null,
+    ];
+
+    usort($history, static fn ($a, $b): int => strcmp((string) ($a['date'] ?? ''), (string) ($b['date'] ?? '')));
+
+    if (count($history) > 90) {
+        $history = array_slice($history, -90);
+    }
+
+    write_json_array_file(fuel_averages_history_path(), $history);
 }
 
 function build_dashboard_payload(array $previousSnapshot = []): array
@@ -3131,6 +3174,7 @@ function build_dashboard_payload(array $previousSnapshot = []): array
         'warnings' => [],
         'stationPromotions' => $stationPromotions,
         'fuelAverages' => $fuelAverages,
+        'fuelAveragesHistory' => fuel_averages_history(),
         'lastDataUpdateLabel' => $generatedAt->format('d.m.Y H:i'),
         'lastDataUpdateDateLabel' => $generatedAt->format('d.m.Y'),
         'lastDataUpdateTimeLabel' => $generatedAt->format('H:i'),
@@ -3151,6 +3195,7 @@ function empty_dashboard_snapshot(): array
             'sourceMode' => 'empty_snapshot',
         ],
         'fuelAverages' => null,
+        'fuelAveragesHistory' => [],
         'lastDataUpdateLabel' => 'brak danych',
         'lastDataUpdateDateLabel' => 'brak danych',
         'lastDataUpdateTimeLabel' => null,
@@ -3201,6 +3246,15 @@ function refresh_dashboard_snapshot_for_target(?DateTimeImmutable $refreshTarget
 
 
 
+
+if (PHP_SAPI !== 'cli' && isset($_GET['refresh_status']) && $_GET['refresh_status'] === '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    $statusSnapshot = load_dashboard_snapshot();
+    echo json_encode([
+        'generatedAtIso' => is_array($statusSnapshot) ? ($statusSnapshot['generatedAtIso'] ?? null) : null,
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
+}
 
 $isCronRefresh = cli_has_flag('--refresh-cache');
 $isUrlRefresh = PHP_SAPI !== 'cli' && isset($_GET['refresh']) && $_GET['refresh'] === '1';
@@ -3257,6 +3311,7 @@ if ($isCronRefresh) {
 
 $manualRefreshUrl = './?refresh=1';
 $warnings = [];
+$fuelAveragesHistory = fuel_averages_history();
 
 $stationPromotions = $snapshot['stationPromotions'] ?? [
     'url' => station_promotions_source_url(),
@@ -3370,7 +3425,7 @@ if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
     $status = isset($_GET['status']) ? (string) $_GET['status'] : '';
 
     if ($status === 'refresh_started') {
-        $manualRefreshMessage = 'Odświeżanie uruchomione w tle — pobieram wszystkie promocje i średnie ceny (potrwa ok. 2 min). Odśwież stronę za chwilę, żeby zobaczyć nowe dane.';
+        $manualRefreshMessage = 'Odświeżanie uruchomione w tle — pobieram wszystkie promocje i średnie ceny. Strona odświeży się automatycznie po zakończeniu aktualizacji (zwykle ok. 40 s).';
         $manualRefreshClass = 'alert-info';
     } elseif ($status === 'fresh_saved') {
         $manualRefreshMessage = 'Promocje zostały ręcznie odświeżone. Aktualny czas zapisu: ' . $lastDataUpdateLabel . '.';
@@ -3959,6 +4014,9 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         }
 
         .panel { background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:1.4rem 1.5rem; box-shadow:0 12px 30px var(--shadow); }
+        .chart-wrap { position:relative; height:320px; }
+        @media (max-width:640px){ .chart-wrap { height:260px; } }
+        .chart-note { margin:.7rem 0 0; font-size:.78rem; color:var(--muted); }
         .empty { color:var(--muted); padding:1rem; }
 
         .spot { display:grid; grid-template-columns:1.3fr 1fr; gap:1.1rem; margin-bottom:2rem; }
@@ -4081,6 +4139,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             .hero-foot{flex-direction:row; flex-wrap:wrap; justify-content:flex-start; gap:.5rem;}
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
 <div class="theme-fab">
@@ -4184,8 +4243,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                         ON <?= e($faPrice($fa['diesel'])) ?> zł<?php if (isset($fa['lpg']) && is_numeric($fa['lpg'])): ?> ·
                         LPG <?= e($faPrice($fa['lpg'])) ?> zł<?php endif; ?><?php if (!empty($fa['stations'])): ?>
                         (<?= e((string) (int) $fa['stations']) ?> stacji)<?php endif; ?><?php if ($faDate !== ''): ?> ·
-                        aktualizacja <?= e($faDate) ?><?php endif; ?> — źródło:
-                        <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>
+                        aktualizacja <?= e($faDate) ?><?php endif; ?>.
                     </p>
                 <?php endif; ?>
             </div>
@@ -4218,6 +4276,14 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 <?php endif; ?>
             </div>
 
+            <?php if ($fuelAveragesHistory !== []): ?>
+                <h2 class="section-title h3 mt-5 mb-3">Średnie ceny paliw w Polsce</h2>
+                <div class="panel">
+                    <div class="chart-wrap"><canvas id="avgChart"></canvas></div>
+                    <p class="chart-note">Źródło: <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>. Wykres uzupełnia się o kolejny punkt przy każdej aktualizacji danych.</p>
+                </div>
+            <?php endif; ?>
+
             <h2 class="section-title h3 mt-5 mb-3">Oś ważności</h2>
             <div class="panel"><div id="tl" class="tl"></div></div>
         </div>
@@ -4230,6 +4296,9 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>,
             <a class="source-link" href="<?= e(moya_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOYA</a>,
             <a class="source-link" href="<?= e(mol_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOL</a>.
+            <br>
+            Średnie ceny paliw:
+            <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>.
             <br>
             Kod źródłowy projektu:
             <a class="source-link" href="https://github.com/udnn1/monitor-promocji-paliwowych" target="_blank" rel="noreferrer">github.com/udnn1/monitor-promocji-paliwowych</a>.
@@ -4305,12 +4374,33 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
     }
 
     const manualRefreshAlert = document.getElementById('manualRefreshAlert');
+    const REFRESH_STARTED = <?= (isset($_GET['refreshed'], $_GET['status']) && $_GET['status'] === 'refresh_started') ? 'true' : 'false' ?>;
+    const REFRESH_BASELINE = <?= json_encode($snapshot['generatedAtIso'] ?? null, JSON_UNESCAPED_SLASHES) ?>;
 
-    if (manualRefreshAlert) {
+    if (manualRefreshAlert && !REFRESH_STARTED) {
         window.setTimeout(() => {
             manualRefreshAlert.classList.add('is-hiding');
             window.setTimeout(() => manualRefreshAlert.remove(), 350);
         }, 6500);
+    }
+
+    if (REFRESH_STARTED) {
+        let refreshTries = 0;
+        const refreshPoll = window.setInterval(() => {
+            refreshTries++;
+            fetch('?refresh_status=1', { cache: 'no-store' })
+                .then(r => r.json())
+                .then(j => {
+                    if (j && j.generatedAtIso && j.generatedAtIso !== REFRESH_BASELINE) {
+                        window.clearInterval(refreshPoll);
+                        window.location = window.location.pathname;
+                    }
+                })
+                .catch(() => {});
+            if (refreshTries > 75) {
+                window.clearInterval(refreshPoll);
+            }
+        }, 4000);
     }
 
     (() => {
@@ -4330,6 +4420,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
 
     const PROMO_DATA = <?= json_encode($promoData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     const FUEL_AVG = <?= json_encode($snapshot['fuelAverages'] ?? null, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const FUEL_AVG_HISTORY = <?= json_encode($fuelAveragesHistory, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     let savingsFuel = 'benzyna';
     try { const sf = localStorage.getItem('fuelSavingsFuel'); if (sf === 'diesel' || sf === 'benzyna') savingsFuel = sf; } catch (e) {}
     const pToday = new Date(); pToday.setHours(0,0,0,0);
@@ -4443,6 +4534,47 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         renderPromos();
     }));
     syncSaveButtons();
+
+    function renderAvgChart() {
+        const canvas = document.getElementById('avgChart');
+        if (!canvas || typeof Chart === 'undefined' || !Array.isArray(FUEL_AVG_HISTORY) || FUEL_AVG_HISTORY.length === 0) {
+            return;
+        }
+        const isDark = document.documentElement.dataset.theme === 'dark';
+        const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(18,52,59,.08)';
+        const tickColor = isDark ? 'rgba(233,243,241,.75)' : 'rgba(91,107,116,.95)';
+        const labels = FUEL_AVG_HISTORY.map(e => { const d = (e.date || '').split('-'); return d.length === 3 ? d[2] + '.' + d[1] : (e.date || ''); });
+        const defs = [
+            { key: 'benzyna', label: 'PB95', color: '#1f8a70' },
+            { key: 'pb98', label: 'PB98', color: '#e69a1a' },
+            { key: 'diesel', label: 'ON', color: '#2c6fb0' },
+            { key: 'lpg', label: 'LPG', color: '#c0498b' },
+        ];
+        const pointR = FUEL_AVG_HISTORY.length > 25 ? 0 : 3;
+        const datasets = defs.map(d => ({
+            label: d.label,
+            data: FUEL_AVG_HISTORY.map(e => (typeof e[d.key] === 'number' ? e[d.key] : null)),
+            borderColor: d.color, backgroundColor: d.color,
+            tension: 0.3, spanGaps: true, pointRadius: pointR, pointHoverRadius: 4, borderWidth: 2,
+        }));
+        new Chart(canvas, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: tickColor, usePointStyle: true, boxWidth: 8 } },
+                    tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y != null ? c.parsed.y.toFixed(2).replace('.', ',') + ' zł/l' : '—') } },
+                },
+                scales: {
+                    x: { grid: { color: gridColor }, ticks: { color: tickColor, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+                    y: { grid: { color: gridColor }, ticks: { color: tickColor, callback: (v) => v.toFixed(2).replace('.', ',') } },
+                },
+            },
+        });
+    }
+    document.addEventListener('DOMContentLoaded', () => { try { renderAvgChart(); } catch (e) {} });
 
     renderPromos();
 </script>
