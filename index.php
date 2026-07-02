@@ -4352,10 +4352,8 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             <a class="source-link" href="<?= e(shell_promotions_source_url()) ?>" target="_blank" rel="noreferrer">Shell</a>,
             <a class="source-link" href="<?= e(orlen_vitay_promotions_source_url()) ?>" target="_blank" rel="noreferrer">ORLEN VITAY</a>,
             <a class="source-link" href="<?= e(moya_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOYA</a>,
-            <a class="source-link" href="<?= e(mol_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOL</a>.
-            <br>
-            Średnie ceny paliw:
-            <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>.
+            <a class="source-link" href="<?= e(mol_promotions_source_url()) ?>" target="_blank" rel="noreferrer">MOL</a>,
+            <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a> (średnie ceny).
             <br>
             Kod źródłowy projektu:
             <a class="source-link" href="https://github.com/udnn1/monitor-promocji-paliwowych" target="_blank" rel="noreferrer">github.com/udnn1/monitor-promocji-paliwowych</a>.
