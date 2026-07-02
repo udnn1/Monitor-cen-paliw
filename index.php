@@ -4361,6 +4361,8 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                     <?php if (!empty($fa['stale'])): ?>
                         <p class="avg-warn">⚠ Nie udało się pobrać świeżych średnich cen z paliwomapy — pokazane wartości są ostatnie znane<?= $faDate !== '' ? ' (z ' . e($faDate) . ')' : '' ?>. Zostanie to naprawione przy kolejnej aktualizacji; jeśli problem się utrzymuje, źródło (klucz/API paliwomapy) wymaga sprawdzenia.</p>
                     <?php endif; ?>
+                <?php else: ?>
+                    <p class="avg-warn">⚠ Chwilowo brak średnich cen z paliwomapy — źródło jest niedostępne, a nie mamy jeszcze zapisanych wcześniejszych danych. Ceny pojawią się przy najbliższym udanym odświeżeniu; jeśli problem się utrzymuje, sprawdź klucz/API paliwomapy.</p>
                 <?php endif; ?>
             </div>
 
@@ -4392,11 +4394,15 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 <?php endif; ?>
             </div>
 
+            <h2 class="section-title h3 mt-5 mb-3">Średnie ceny paliw w Polsce (ostatni miesiąc)</h2>
             <?php if ($fuelAveragesHistory !== []): ?>
-                <h2 class="section-title h3 mt-5 mb-3">Średnie ceny paliw w Polsce (ostatni miesiąc)</h2>
                 <div class="panel">
                     <div class="chart-wrap"><canvas id="avgChart"></canvas></div>
                     <p class="chart-note">Średnie ceny detaliczne (PB95, PB98, ON, LPG) z ostatniego miesiąca. Źródło: <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>. Wykres uzupełnia się o kolejny punkt przy każdej aktualizacji danych.</p>
+                </div>
+            <?php else: ?>
+                <div class="panel">
+                    <p class="chart-note">Brak danych do wykresu — historia średnich cen jest jeszcze pusta. Pierwszy punkt pojawi się po najbliższym udanym pobraniu z <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapy</a>, a wykres zbuduje się z kolejnych dni.</p>
                 </div>
             <?php endif; ?>
 
