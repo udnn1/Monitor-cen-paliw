@@ -40,7 +40,9 @@ def main():
             page.wait_for_timeout(2500)
             tiles = page.evaluate(
                 "() => { const c = document.querySelector('.promotions-container .row');"
-                " return c ? [...c.children].map(t => (t.innerText || '').trim()) : []; }"
+                " if (!c) return [];"
+                " return [...c.children].map(t => { const a = t.querySelector('a[href]');"
+                " return { text: (t.innerText || '').trim(), href: a ? a.getAttribute('href') : null }; }); }"
             )
             browser.close()
     except Exception:
@@ -48,13 +50,25 @@ def main():
         return
 
     for raw in tiles:
-        if not raw:
+        if not isinstance(raw, dict):
             continue
-        lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
+        text = raw.get("text") or ""
+        if not text:
+            continue
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
         if not lines:
             continue
         title = clean(lines[0])
         full = clean(" ".join(lines))
+        href = raw.get("href") or ""
+        url = None
+        if href:
+            if href.startswith("http"):
+                url = href
+            elif href.startswith("/"):
+                url = "https://molpolska.pl" + href
+            else:
+                url = "https://molpolska.pl/" + href
         from_iso = to_iso_value = None
         span = re.search(r"(\d{4}\.\d{2}\.\d{2})\.?\s*-\s*(\d{4}\.\d{2}\.\d{2})", full)
         if span:
@@ -64,7 +78,7 @@ def main():
             start = re.search(r"rozpocz\w*\s*promocji:?\s*(\d{4}\.\d{2}\.\d{2})", full)
             if start:
                 from_iso = to_iso(start.group(1))
-        out.append({"title": title, "text": full, "fromIso": from_iso, "toIso": to_iso_value})
+        out.append({"title": title, "text": full, "url": url, "fromIso": from_iso, "toIso": to_iso_value})
 
     print(json.dumps(out, ensure_ascii=False))
 

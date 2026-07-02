@@ -2752,11 +2752,13 @@ function fetch_mol_fuel_promotions(): array
             : ($to instanceof DateTimeImmutable ? 'do ' . $to->format('d.m.Y') : null),
     ];
 
+    $detailUrl = is_string($best['url'] ?? null) && $best['url'] !== '' ? (string) $best['url'] : $sourceUrl;
+
     $item = build_station_promotion_payload(
         'MOL',
         $title,
         $description,
-        $sourceUrl,
+        $detailUrl,
         $sourceUrl,
         $dateRange
     );
