@@ -3063,6 +3063,58 @@ function fetch_station_promotions(array $previousItems = []): array
 
 
 
+function fuel_averages_cache_path(): string
+{
+    return cache_dir() . '/fuel-averages.json';
+}
+
+function fetch_fuel_averages(): ?array
+{
+    $path = fuel_averages_cache_path();
+    $cached = read_json_array_file($path);
+    $now = time();
+
+    if (is_array($cached) && isset($cached['fetchedAt'])
+        && ($now - (int) $cached['fetchedAt']) < 43200
+        && isset($cached['benzyna'], $cached['diesel'])) {
+        return $cached;
+    }
+
+    $script = __DIR__ . '/paliwomapa_scrape.py';
+    $fresh = null;
+
+    if (is_file($script) && function_exists('shell_exec')) {
+        $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
+            . ' timeout 175 xvfb-run -a python3 ' . escapeshellarg($script) . ' 2>/dev/null';
+        $out = shell_exec($cmd);
+
+        if (is_string($out) && trim($out) !== '') {
+            $decoded = json_decode(trim($out), true);
+
+            if (is_array($decoded) && isset($decoded['benzyna'], $decoded['diesel'])
+                && is_numeric($decoded['benzyna']) && is_numeric($decoded['diesel'])) {
+                $fresh = [
+                    'benzyna' => (float) $decoded['benzyna'],
+                    'pb98' => isset($decoded['pb98']) && is_numeric($decoded['pb98']) ? (float) $decoded['pb98'] : null,
+                    'diesel' => (float) $decoded['diesel'],
+                    'lpg' => isset($decoded['lpg']) && is_numeric($decoded['lpg']) ? (float) $decoded['lpg'] : null,
+                    'stations' => isset($decoded['stations']) ? (int) $decoded['stations'] : null,
+                    'date' => isset($decoded['date']) && is_string($decoded['date']) ? $decoded['date'] : null,
+                    'fetchedAt' => $now,
+                    'source' => 'paliwomapa.pl',
+                ];
+            }
+        }
+    }
+
+    if ($fresh !== null) {
+        write_json_array_file($path, $fresh);
+        return $fresh;
+    }
+
+    return is_array($cached) && $cached !== [] ? $cached : null;
+}
+
 function build_dashboard_payload(array $previousSnapshot = []): array
 {
     $previousPromotionItems = is_array($previousSnapshot['stationPromotions']['items'] ?? null)
@@ -3070,12 +3122,14 @@ function build_dashboard_payload(array $previousSnapshot = []): array
         : [];
 
     $stationPromotions = fetch_station_promotions($previousPromotionItems);
+    $fuelAverages = fetch_fuel_averages();
 
     $generatedAt = new DateTimeImmutable();
 
     return [
         'warnings' => [],
         'stationPromotions' => $stationPromotions,
+        'fuelAverages' => $fuelAverages,
         'lastDataUpdateLabel' => $generatedAt->format('d.m.Y H:i'),
         'lastDataUpdateDateLabel' => $generatedAt->format('d.m.Y'),
         'lastDataUpdateTimeLabel' => $generatedAt->format('H:i'),
@@ -3095,6 +3149,7 @@ function empty_dashboard_snapshot(): array
             'fetchedAtLabel' => 'brak danych',
             'sourceMode' => 'empty_snapshot',
         ],
+        'fuelAverages' => null,
         'lastDataUpdateLabel' => 'brak danych',
         'lastDataUpdateDateLabel' => 'brak danych',
         'lastDataUpdateTimeLabel' => null,
@@ -3966,6 +4021,20 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
         .days { font-size:.78rem; color:var(--muted); font-weight:700; margin-top:.35rem; }
         .days.soon { color:#c62828; }
+        .save-controls { margin:0 0 1.25rem; }
+        .save-toggle { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+        .save-toggle-lbl { font-size:.85rem; font-weight:700; color:var(--muted); }
+        .save-btn { border:1px solid var(--line); background:var(--surface); color:var(--ink); font-weight:800; font-size:.82rem; padding:.4rem .8rem; border-radius:999px; cursor:pointer; transition:background .15s ease, border-color .15s ease, color .15s ease; }
+        .save-btn:hover { border-color:rgba(31,138,112,.35); }
+        .save-btn.active { background:linear-gradient(120deg,#0c5b38,#1f8a70); color:#fff; border-color:transparent; }
+        .avg-note { margin:.6rem 0 0; font-size:.78rem; color:var(--muted); line-height:1.5; }
+        .avg-note .source-link { font-weight:700; }
+        .save-fuel { font-size:.6rem; font-weight:800; text-transform:none; letter-spacing:0; color:var(--green-deep); background:rgba(31,138,112,.12); padding:.1rem .4rem; border-radius:999px; margin-left:.3rem; }
+        :root[data-theme="dark"] .save-fuel { color:#8ee0b4; }
+        .save-lines .rv { display:inline-flex; gap:.55rem; align-items:baseline; }
+        .save-lines .rv .cost { color:var(--muted); font-weight:700; }
+        .save-price { display:block; margin-top:.35rem; font-size:.76rem; color:var(--muted); }
+        .save-price b { color:var(--ink); font-weight:800; }
         .save-lines { display:flex; flex-direction:column; gap:.2rem; }
         .save-lines span { font-size:.82rem; color:var(--muted); white-space:nowrap; display:flex; justify-content:space-between; gap:1rem; }
         .save-lines span b { color:var(--ink); font-weight:800; }
@@ -4088,6 +4157,33 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             <div id="spot" class="spot"></div>
 
             <h2 class="section-title h1 mb-3">Aktualne promocje paliwowe</h2>
+
+            <div class="save-controls">
+                <div class="save-toggle" role="group" aria-label="Paliwo dla szacowanej oszczędności">
+                    <span class="save-toggle-lbl">Szacowana oszczędność dla:</span>
+                    <button type="button" class="save-btn" data-fuel="benzyna">Benzyna (PB95)</button>
+                    <button type="button" class="save-btn" data-fuel="diesel">Diesel (ON)</button>
+                </div>
+                <?php
+                $fa = is_array($snapshot['fuelAverages'] ?? null) ? $snapshot['fuelAverages'] : null;
+                if ($fa !== null && isset($fa['benzyna'], $fa['diesel'])):
+                    $faPrice = static fn ($v) => is_numeric($v) ? number_format((float) $v, 2, ',', '') : '—';
+                    $faDate = '';
+                    if (!empty($fa['date']) && ($ts = strtotime((string) $fa['date'])) !== false) {
+                        $faDate = date('d.m.Y', $ts);
+                    }
+                ?>
+                    <p class="avg-note">
+                        Średnie ceny w Polsce: PB95 <?= e($faPrice($fa['benzyna'])) ?> zł ·
+                        ON <?= e($faPrice($fa['diesel'])) ?> zł<?php if (isset($fa['lpg']) && is_numeric($fa['lpg'])): ?> ·
+                        LPG <?= e($faPrice($fa['lpg'])) ?> zł<?php endif; ?><?php if (!empty($fa['stations'])): ?>
+                        (<?= e((string) (int) $fa['stations']) ?> stacji)<?php endif; ?><?php if ($faDate !== ''): ?> ·
+                        aktualizacja <?= e($faDate) ?><?php endif; ?> — źródło:
+                        <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>
+                    </p>
+                <?php endif; ?>
+            </div>
+
             <div id="cmpBody" class="promo-list">
                 <?php if ($promoData !== []): ?>
                     <?php foreach ($promoData as $seoCard):
@@ -4224,6 +4320,9 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
     })();
 
     const PROMO_DATA = <?= json_encode($promoData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const FUEL_AVG = <?= json_encode($snapshot['fuelAverages'] ?? null, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    let savingsFuel = 'benzyna';
+    try { const sf = localStorage.getItem('fuelSavingsFuel'); if (sf === 'diesel' || sf === 'benzyna') savingsFuel = sf; } catch (e) {}
     const pToday = new Date(); pToday.setHours(0,0,0,0);
     const pFmt = (n) => n.toFixed(2).replace('.', ',');
     const pParse = (iso) => { if(!iso) return null; const [y,m,d]=iso.split('-').map(Number); return new Date(y,m-1,d); };
@@ -4302,7 +4401,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
               <div class="pi-meta">
                 <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>−${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}</span></div>
                 <div class="pi-cell"><span class="lbl">Ważność</span><span class="val">do ${pDmy(it.toIso)}</span><div class="prog ${soon?'soon':''}"><div style="width:${elapsed}%"></div></div><div class="days ${soon?'soon':''}">${dl!==null&&dl>=0?'zostało '+dl+' dni':'zakończona'}</div></div>
-                <div class="pi-cell"><span class="lbl">Szacowana oszczędność</span><span class="save-lines"><span>40 l <b>~${pFmt(o.g*40/100)} zł</b></span><span>45 l <b>~${pFmt(o.g*45/100)} zł</b></span><span>50 l <b>~${pFmt(o.g*50/100)} zł</b></span></span></div>
+                <div class="pi-cell"><span class="lbl">Szacowana oszczędność${(FUEL_AVG&&FUEL_AVG[savingsFuel])?` <span class="save-fuel">${savingsFuel==='diesel'?'diesel · koszt ON':'benzyna · koszt PB95'}</span>`:''}</span><span class="save-lines">${[40,45,50].map(L=>`<span>${L} l <span class="rv"><b>~${pFmt(o.g*L/100)} zł</b>${(FUEL_AVG&&FUEL_AVG[savingsFuel])?` <span class="cost">~${pFmt((FUEL_AVG[savingsFuel]-o.g/100)*L)} zł</span>`:''}</span></span>`).join('')}</span>${(FUEL_AVG&&FUEL_AVG[savingsFuel])?`<span class="save-price">śr. ${pFmt(FUEL_AVG[savingsFuel])} zł/l → <b>~${pFmt(FUEL_AVG[savingsFuel]-o.g/100)} zł/l</b> po rabacie</span>`:''}</div>
               </div>
               <div class="pi-desc"><span class="lbl">Opis promocji</span><p>${it.desc?it.desc:'Brak dodatkowego opisu.'}</p>${it.url?`<a href="${it.url}" target="_blank" rel="noreferrer">Otwórz stronę promocji →</a>`:''}</div>
             </article>`;
@@ -4325,6 +4424,16 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 </div>`;
             }).join('');
     }
+
+    const saveButtons = document.querySelectorAll('.save-btn');
+    const syncSaveButtons = () => saveButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.fuel === savingsFuel));
+    saveButtons.forEach(btn => btn.addEventListener('click', () => {
+        savingsFuel = btn.dataset.fuel === 'diesel' ? 'diesel' : 'benzyna';
+        try { localStorage.setItem('fuelSavingsFuel', savingsFuel); } catch (e) {}
+        syncSaveButtons();
+        renderPromos();
+    }));
+    syncSaveButtons();
 
     renderPromos();
 </script>
