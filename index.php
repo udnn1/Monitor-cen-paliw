@@ -2710,8 +2710,8 @@ function fetch_mol_fuel_promotions(): array
     $description = preg_replace('/\s*(Okres obowiązywania promocji|Data rozpocz\w+ promocji).*$/iu', '', $rawText) ?? $rawText;
     $description = trim(preg_replace('/^' . preg_quote($title, '/') . '\s*/u', '', $description) ?? $description);
 
-    if ($description !== '' && function_exists('mb_substr') && mb_strlen($description, 'UTF-8') > 260) {
-        $description = rtrim(mb_substr($description, 0, 257, 'UTF-8')) . '...';
+    if ($description !== '' && function_exists('mb_substr') && mb_strlen($description, 'UTF-8') > 500) {
+        $description = rtrim(mb_substr($description, 0, 497, 'UTF-8')) . '...';
     }
 
     $gr = mol_promo_gr_values($rawText);
