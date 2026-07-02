@@ -69,14 +69,6 @@ promocje + średnie ceny) trwa ~7 s, bo wszystko leci po HTTP.
 
 - **Ręcznie** przyciskiem „Odśwież dane" w interfejsie (cooldown 300 s).
 
-## Bezpieczeństwo
-
-- SSR escapowany (`htmlspecialchars`), render kliencki przez helper `esc()` +
-  walidację schematu URL (`safeUrl`), a inline JSON z `JSON_HEX_TAG` — scrapowana
-  treść nie może wyjść z tagu `<script>`.
-- Wywołania powłoki wyłącznie z `escapeshellarg`; adresy do pobierania nie
-  pochodzą z wejścia użytkownika.
-
 ## Wymagania
 
 - **PHP** 8.x — rozszerzenia `curl`, `mbstring`, `dom` (przeglądarka **niepotrzebna**)
