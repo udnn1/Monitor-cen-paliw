@@ -3168,7 +3168,13 @@ function fetch_fuel_averages(): ?array
         return $fresh;
     }
 
-    return is_array($cached) && $cached !== [] ? $cached : null;
+    if (is_array($cached) && $cached !== []) {
+        $cached['stale'] = true;
+
+        return $cached;
+    }
+
+    return null;
 }
 
 function fuel_averages_history_path(): string
@@ -4149,6 +4155,8 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .save-btn:hover { border-color:rgba(31,138,112,.35); }
         .save-btn.active { background:linear-gradient(120deg,#0c5b38,#1f8a70); color:#fff; border-color:transparent; }
         .avg-note { margin:.6rem 0 0; font-size:.78rem; color:var(--muted); line-height:1.5; }
+        .avg-warn { margin:.5rem 0 0; font-size:.8rem; font-weight:700; line-height:1.5; color:#a3341b; background:rgba(227,19,27,.08); border:1px solid rgba(227,19,27,.28); border-radius:10px; padding:.5rem .7rem; }
+        :root[data-theme="dark"] .avg-warn { color:#ffb3a3; background:rgba(227,19,27,.14); border-color:rgba(227,19,27,.4); }
         .avg-note .source-link { font-weight:700; }
         .save-fuel { font-size:.6rem; font-weight:800; text-transform:none; letter-spacing:0; color:var(--green-deep); background:rgba(31,138,112,.12); padding:.1rem .4rem; border-radius:999px; margin-left:.3rem; }
         :root[data-theme="dark"] .save-fuel { color:#8ee0b4; }
@@ -4302,6 +4310,9 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                         (<?= e((string) (int) $fa['stations']) ?> stacji)<?php endif; ?><?php if ($faDate !== ''): ?> ·
                         aktualizacja <?= e($faDate) ?><?php endif; ?>.
                     </p>
+                    <?php if (!empty($fa['stale'])): ?>
+                        <p class="avg-warn">⚠ Nie udało się pobrać świeżych średnich cen z paliwomapy — pokazane wartości są ostatnie znane<?= $faDate !== '' ? ' (z ' . e($faDate) . ')' : '' ?>. Zostanie to naprawione przy kolejnej aktualizacji; jeśli problem się utrzymuje, źródło (klucz/API paliwomapy) wymaga sprawdzenia.</p>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
 
