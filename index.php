@@ -326,9 +326,9 @@ function format_cooldown_minutes(int $remainingSeconds): string
     return $minutes . ' minut';
 }
 
-function redirect_after_manual_refresh(string $status, ?string $base = null): void
+function redirect_after_manual_refresh(string $status): void
 {
-    $redirectPath = (string) ($_SERVER['SCRIPT_NAME'] ?? '');
+    $redirectPath = str_replace(["\r", "\n", "\0"], '', (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
 
     if ($redirectPath === '') {
         $redirectPath = './';
@@ -345,10 +345,6 @@ function redirect_after_manual_refresh(string $status, ?string $base = null): vo
     $location = $redirectPath
         . '?refreshed=1&status=' . rawurlencode($status)
         . '&t=' . time();
-
-    if ($base !== null && $base !== '') {
-        $location .= '&base=' . rawurlencode($base);
-    }
 
     header('Location: ' . $location, true, 303);
     exit;
@@ -4507,7 +4503,6 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             url.searchParams.delete('refreshed');
             url.searchParams.delete('status');
             url.searchParams.delete('t');
-            url.searchParams.delete('base');
 
             const cleanSearch = url.searchParams.toString();
             const cleanUrl = url.pathname + (cleanSearch ? `?${cleanSearch}` : '') + url.hash;
@@ -4516,9 +4511,11 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         }
     })();
 
-    const PROMO_DATA = <?= json_encode($promoData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-    const FUEL_AVG = <?= json_encode($snapshot['fuelAverages'] ?? null, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-    const FUEL_AVG_HISTORY = <?= json_encode($fuelAveragesHistory, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const PROMO_DATA = <?= json_encode($promoData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const FUEL_AVG = <?= json_encode($snapshot['fuelAverages'] ?? null, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const FUEL_AVG_HISTORY = <?= json_encode($fuelAveragesHistory, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const safeUrl = (v) => { const s = String(v == null ? '' : v).trim(); return /^https?:\/\//i.test(s) ? s : ''; };
     let savingsFuel = 'benzyna';
     try { const sf = localStorage.getItem('fuelSavingsFuel'); if (sf === 'diesel' || sf === 'benzyna') savingsFuel = sf; } catch (e) {}
     const pToday = new Date(); pToday.setHours(0,0,0,0);
@@ -4556,11 +4553,11 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         spot.innerHTML = `
           <div class="hero">
             <div class="hero-id">
-              <div class="hero-logo">${top.it.logo?`<img src="${top.it.logo}" alt="">`:''}</div>
+              <div class="hero-logo">${top.it.logo?`<img src="${esc(top.it.logo)}" alt="">`:''}</div>
               <div>
                 <div class="hero-kick">★ TOP okazja</div>
-                <div class="hero-net">${top.it.net}</div>
-                <div class="hero-cond">${top.it.cond}</div>
+                <div class="hero-net">${esc(top.it.net)}</div>
+                <div class="hero-cond">${esc(top.it.cond)}</div>
               </div>
             </div>
             <div class="hero-big"><span class="n">−${top.off.g}<span class="nu">gr/l</span></span><small>benzyna i diesel</small></div>
@@ -4571,9 +4568,9 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
           </div>
           <div class="spot-side">
             <div class="mini"><span class="mini-label">Aktywne promocje</span><span class="mini-value">${active}</span></div>
-            <div class="mini"><span class="mini-label">Najwyższy rabat</span><span class="mini-value">−${maxV} gr/l</span>${maxNet?`<span class="mini-sub">${maxNet}</span>`:''}</div>
-            <div class="mini"><span class="mini-label">Najbliższy koniec</span><span class="mini-value">${nearest!==null?nearest+' dni':'—'}</span>${nearest!==null&&nearestNet?`<span class="mini-sub">${nearestNet}</span>`:''}</div>
-            <div class="mini"><span class="mini-label">Najlepsza bezwarunkowa</span><span class="mini-value">${uncond?uncond.it.net:'—'}</span></div>
+            <div class="mini"><span class="mini-label">Najwyższy rabat</span><span class="mini-value">−${maxV} gr/l</span>${maxNet?`<span class="mini-sub">${esc(maxNet)}</span>`:''}</div>
+            <div class="mini"><span class="mini-label">Najbliższy koniec</span><span class="mini-value">${nearest!==null?nearest+' dni':'—'}</span>${nearest!==null&&nearestNet?`<span class="mini-sub">${esc(nearestNet)}</span>`:''}</div>
+            <div class="mini"><span class="mini-label">Najlepsza bezwarunkowa</span><span class="mini-value">${uncond?esc(uncond.it.net):'—'}</span></div>
           </div>`;
 
         body.innerHTML = rows.map((r) => {
@@ -4584,12 +4581,12 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             return `
             <article class="promo-item ${it.top?'top':''}">
               ${it.top?`<div class="pi-ribbon pi-ribbon-top">★ TOP okazja</div>`:''}
-              ${it.disc.when?`<div class="pi-ribbon">⏱ ${it.disc.when}</div>`:''}
+              ${it.disc.when?`<div class="pi-ribbon">⏱ ${esc(it.disc.when)}</div>`:''}
               <div class="pi-head">
                 <div class="pi-id">
-                  ${it.logo?`<span class="pi-logo"><img src="${it.logo}" alt=""></span>`:''}
+                  ${it.logo?`<span class="pi-logo"><img src="${esc(it.logo)}" alt=""></span>`:''}
                   <div>
-                    <div class="pi-name">${it.net}</div>
+                    <div class="pi-name">${esc(it.net)}</div>
                     <div class="pi-sub"><span class="pi-dot"></span>Aktywna promocja</div>
                   </div>
                 </div>
@@ -4600,11 +4597,11 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
               </div>
               <div class="divider"></div>
               <div class="pi-meta">
-                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${it.disc.baseCond}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>−${o.v} gr/l</b> ${it.disc.maxCond?it.disc.maxCond:'w wariancie maksymalnym'}</span>`:''}</span></div>
+                <div class="pi-cell"><span class="lbl">Rabat i warunki</span><span class="val-tiers"><span class="tline"><b>−${o.g} gr/l</b> ${esc(it.disc.baseCond)}</span>${o.upto&&o.v>o.g?`<span class="tline"><b>−${o.v} gr/l</b> ${it.disc.maxCond?esc(it.disc.maxCond):'w wariancie maksymalnym'}</span>`:''}</span></div>
                 <div class="pi-cell"><span class="lbl">Ważność</span><span class="val">do ${pDmy(it.toIso)}</span><div class="prog ${soon?'soon':''}"><div style="width:${elapsed}%"></div></div><div class="days ${soon?'soon':''}">${dl!==null&&dl>=0?'zostało '+dl+' dni':'zakończona'}</div></div>
                 <div class="pi-cell"><span class="lbl">Szacowana oszczędność${(FUEL_AVG&&FUEL_AVG[savingsFuel])?` <span class="save-fuel">${savingsFuel==='diesel'?'diesel · koszt ON':'benzyna · koszt PB95'}</span>`:''}</span><span class="save-lines">${[40,45,50].map(L=>`<span>${L} l <span class="rv"><b>~${pFmt(o.g*L/100)} zł</b>${(FUEL_AVG&&FUEL_AVG[savingsFuel])?` <span class="cost">~${pFmt((FUEL_AVG[savingsFuel]-o.g/100)*L)} zł</span>`:''}</span></span>`).join('')}</span>${(FUEL_AVG&&FUEL_AVG[savingsFuel])?`<span class="save-price">śr. ${pFmt(FUEL_AVG[savingsFuel])} zł/l → <b>~${pFmt(FUEL_AVG[savingsFuel]-o.g/100)} zł/l</b> po rabacie</span>`:''}</div>
               </div>
-              <div class="pi-desc"><span class="lbl">Opis promocji</span><p>${it.desc?it.desc:'Brak dodatkowego opisu.'}</p>${it.url?`<a href="${it.url}" target="_blank" rel="noreferrer">Otwórz stronę promocji →</a>`:''}</div>
+              <div class="pi-desc"><span class="lbl">Opis promocji</span><p>${it.desc?esc(it.desc):'Brak dodatkowego opisu.'}</p>${safeUrl(it.url)?`<a href="${esc(safeUrl(it.url))}" target="_blank" rel="noreferrer">Otwórz stronę promocji →</a>`:''}</div>
             </article>`;
         }).join('');
 
@@ -4619,7 +4616,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 const left=(f-start)/span*100, width=Math.max(3,(t-f)/span*100);
                 const dl=pDays(it.toIso); const soon=dl!==null&&dl<=21;
                 return `<div class="tl-row">
-                  <div class="tl-name">${it.logo?`<img src="${it.logo}" alt="">`:''}<span>${it.net}</span></div>
+                  <div class="tl-name">${it.logo?`<img src="${esc(it.logo)}" alt="">`:''}<span>${esc(it.net)}</span></div>
                   <div class="tl-lane"><div class="tl-marker" style="left:${todayPct}%"></div><div class="tl-bar ${soon?'soon':''}" style="left:${left}%;width:${width}%" tabindex="0"><span class="tl-tip"><b>Początek:</b> ${pDmy(it.fromIso)}<br><b>Koniec:</b> ${pDmy(it.toIso)}${dl!==null&&dl>=0?' (za '+dl+' dni)':''}</span></div></div>
                   <div class="tl-end">do <b>${pDmy(it.toIso)}</b>${dl!==null&&dl>=0?' · za '+dl+' dni':''}</div>
                 </div>`;
