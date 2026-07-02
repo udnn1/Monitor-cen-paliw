@@ -22,8 +22,15 @@ def clean(text):
 
 def fetch_detail(page, url, title):
     try:
-        page.goto(url, wait_until="networkidle", timeout=40000)
-        page.wait_for_timeout(800)
+        page.goto(url, wait_until="domcontentloaded", timeout=40000)
+        try:
+            page.wait_for_function(
+                "() => { const s=['main','article','.content-container','.article-content'];"
+                " return s.some(x => { const e=document.querySelector(x); return e && (e.innerText||'').length>200; }); }",
+                timeout=12000,
+            )
+        except Exception:
+            page.wait_for_timeout(1500)
         txt = page.evaluate(
             "() => { const sels = ['main', 'article', '.content-container', '.article-content'];"
             " for (const s of sels) { const el = document.querySelector(s);"
@@ -70,12 +77,12 @@ def main():
                 args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
             page = browser.new_page()
-            page.goto(URL, wait_until="networkidle", timeout=40000)
+            page.goto(URL, wait_until="domcontentloaded", timeout=40000)
             try:
-                page.wait_for_selector(".promotions-container .row > *", timeout=8000)
+                page.wait_for_selector(".promotions-container .row > *", timeout=12000)
             except Exception:
                 pass
-            page.wait_for_timeout(600)
+            page.wait_for_timeout(400)
             tiles = page.evaluate(
                 "() => { const c = document.querySelector('.promotions-container .row');"
                 " if (!c) return [];"
