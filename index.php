@@ -4277,10 +4277,10 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             </div>
 
             <?php if ($fuelAveragesHistory !== []): ?>
-                <h2 class="section-title h3 mt-5 mb-3">Średnie ceny paliw w Polsce</h2>
+                <h2 class="section-title h3 mt-5 mb-3">Średnie ceny paliw w Polsce (ostatni miesiąc)</h2>
                 <div class="panel">
                     <div class="chart-wrap"><canvas id="avgChart"></canvas></div>
-                    <p class="chart-note">Źródło: <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>. Wykres uzupełnia się o kolejny punkt przy każdej aktualizacji danych.</p>
+                    <p class="chart-note">Średnie ceny detaliczne (PB95, PB98, ON, LPG) z ostatniego miesiąca. Źródło: <a class="source-link" href="https://paliwomapa.pl/" target="_blank" rel="noreferrer">paliwomapa.pl</a>. Wykres uzupełnia się o kolejny punkt przy każdej aktualizacji danych.</p>
                 </div>
             <?php endif; ?>
 
@@ -4448,7 +4448,10 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         const dl0 = pDays(top.it.toIso);
         const save0 = pFmt(top.off.g*50/100);
         const active = rows.length;
-        const maxV = Math.max(...rows.map(r=>r.off.v));
+        let maxRow = null;
+        rows.forEach(r=>{ if(maxRow===null||r.off.v>maxRow.off.v){ maxRow=r; } });
+        const maxV = maxRow ? maxRow.off.v : 0;
+        const maxNet = maxRow ? maxRow.it.net : '';
         let nearest = null, nearestNet = '';
         rows.forEach(r=>{ const d=pDays(r.it.toIso); if(d!==null&&d>=0&&(nearest===null||d<nearest)){ nearest=d; nearestNet=r.it.net; } });
         const uncond = rows.filter(r=>!r.off.upto && r.it.cond.startsWith('bezwarunkowo')).sort((a,b)=>b.off.g-a.off.g)[0];
@@ -4470,7 +4473,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
           </div>
           <div class="spot-side">
             <div class="mini"><span class="mini-label">Aktywne promocje</span><span class="mini-value">${active}</span></div>
-            <div class="mini"><span class="mini-label">Najwyższy rabat</span><span class="mini-value">−${maxV} gr/l</span></div>
+            <div class="mini"><span class="mini-label">Najwyższy rabat</span><span class="mini-value">−${maxV} gr/l</span>${maxNet?`<span class="mini-sub">${maxNet}</span>`:''}</div>
             <div class="mini"><span class="mini-label">Najbliższy koniec</span><span class="mini-value">${nearest!==null?nearest+' dni':'—'}</span>${nearest!==null&&nearestNet?`<span class="mini-sub">${nearestNet}</span>`:''}</div>
             <div class="mini"><span class="mini-label">Najlepsza bezwarunkowa</span><span class="mini-value">${uncond?uncond.it.net:'—'}</span></div>
           </div>`;
