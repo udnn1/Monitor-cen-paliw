@@ -2643,6 +2643,38 @@ function mol_promo_gr_values(string $text): array
     ];
 }
 
+function mol_essence_description(string $text): string
+{
+    $text = clean_text($text);
+
+    if ($text === '') {
+        return '';
+    }
+
+    $sentences = preg_split('/(?<=[.!])\s+/u', $text) ?: [$text];
+    $keep = [];
+
+    foreach ($sentences as $sentence) {
+        $sentence = trim($sentence);
+
+        if ($sentence === '') {
+            continue;
+        }
+
+        if (preg_match('/^(wakacje zacznij|do zobaczenia|zyskaj dostęp|pobierz |dołącz |nie pozwól|sprawdź szczegóły|odblokuj ofert)/iu', $sentence) === 1) {
+            continue;
+        }
+
+        if (preg_match('~gr\s*/\s*l|litr|tankow|aplikacj|kupon|\bzł\b|weekend|dni tygodnia|dowoln\w+\s+dni|min\.|\d{1,2}\.\d{2}~iu', $sentence) === 1) {
+            $keep[] = $sentence;
+        }
+    }
+
+    $result = trim(implode(' ', $keep));
+
+    return $result !== '' ? $result : $text;
+}
+
 function fetch_mol_fuel_promotions(): array
 {
     $fetchedAt = new DateTimeImmutable();
@@ -2709,6 +2741,7 @@ function fetch_mol_fuel_promotions(): array
 
     $description = preg_replace('/\s*(Okres obowiązywania promocji|Data rozpocz\w+ promocji).*$/iu', '', $rawText) ?? $rawText;
     $description = trim(preg_replace('/^' . preg_quote($title, '/') . '\s*/u', '', $description) ?? $description);
+    $description = mol_essence_description($description);
 
     if ($description !== '' && function_exists('mb_substr') && mb_strlen($description, 'UTF-8') > 500) {
         $description = rtrim(mb_substr($description, 0, 497, 'UTF-8')) . '...';
