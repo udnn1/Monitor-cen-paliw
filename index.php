@@ -3310,6 +3310,19 @@ if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
     }
 }
 
+if ($isRefresh) {
+    $sitemapXml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+        . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n"
+        . '  <url>' . "\n"
+        . '    <loc>https://paliwo.pomo.st/</loc>' . "\n"
+        . '    <lastmod>' . (new DateTimeImmutable())->format('Y-m-d') . '</lastmod>' . "\n"
+        . '    <changefreq>daily</changefreq>' . "\n"
+        . '    <priority>1.0</priority>' . "\n"
+        . '  </url>' . "\n"
+        . '</urlset>' . "\n";
+    @file_put_contents(__DIR__ . '/sitemap.xml', $sitemapXml);
+}
+
 if ($isCronRefresh) {
     echo 'Cache refreshed at ' . $lastDataUpdateLabel . PHP_EOL;
     echo 'Station promotions: ' . count($stationPromotions['items'] ?? []) . PHP_EOL;
@@ -3318,13 +3331,148 @@ if ($isCronRefresh) {
     echo 'Snapshot: ' . dashboard_snapshot_path() . PHP_EOL;
     exit(0);
 }
+
+$seoBaseUrl = 'https://paliwo.pomo.st';
+$seoCanonical = $seoBaseUrl . '/';
+$seoImage = $seoBaseUrl . '/media/og-cover.svg';
+$seoStations = 'BP, Orlen, Shell, Circle K, MOYA i MOL';
+
+$seoTopOffer = null;
+foreach ($promoData as $seoPromo) {
+    if (!empty($seoPromo['top'])) {
+        $seoTopOffer = $seoPromo;
+        break;
+    }
+}
+
+$seoBestSentence = '';
+if (is_array($seoTopOffer)) {
+    $seoBestGr = (int) ($seoTopOffer['fuels']['benzyna']['g'] ?? 0);
+    if ($seoBestGr > 0) {
+        $seoBestSentence = ' Najlepsza okazja dziś: ' . $seoTopOffer['net'] . ' −' . $seoBestGr . ' gr/l na benzynę i diesel.';
+    }
+}
+
+$seoDateIso = null;
+if (!empty($snapshot['generatedAtIso']) && is_string($snapshot['generatedAtIso'])) {
+    $seoDateIso = $snapshot['generatedAtIso'];
+} else {
+    $seoDateIso = (new DateTimeImmutable())->format(DateTimeInterface::ATOM);
+}
+
+$seoTitle = 'Aktualne promocje paliwowe – rabaty na paliwo: BP, Orlen, Shell, Circle K, MOYA, MOL';
+$seoDescription = 'Codziennie aktualizowane promocje paliwowe i rabaty na benzynę, diesel oraz LPG na stacjach ' . $seoStations
+    . ', z automatycznym wykrywaniem najlepszej okazji na tańsze tankowanie.' . $seoBestSentence;
+$seoKeywords = 'promocje paliwowe, rabaty na paliwo, tańsze tankowanie, rabat na benzynę, rabat na diesel, rabat LPG, ceny paliw, kupony paliwowe, BP, Orlen, Shell, Circle K, MOYA, MOL';
+
+$seoLd = [
+    '@context' => 'https://schema.org',
+    '@graph' => [
+        [
+            '@type' => 'WebSite',
+            '@id' => $seoCanonical . '#website',
+            'url' => $seoCanonical,
+            'name' => 'Monitor promocji paliwowych',
+            'description' => $seoDescription,
+            'inLanguage' => 'pl-PL',
+            'publisher' => ['@id' => $seoCanonical . '#org'],
+        ],
+        [
+            '@type' => 'Organization',
+            '@id' => $seoCanonical . '#org',
+            'name' => 'Monitor promocji paliwowych',
+            'url' => $seoCanonical,
+            'logo' => $seoImage,
+        ],
+        [
+            '@type' => 'WebPage',
+            '@id' => $seoCanonical . '#webpage',
+            'url' => $seoCanonical,
+            'name' => $seoTitle,
+            'description' => $seoDescription,
+            'inLanguage' => 'pl-PL',
+            'isPartOf' => ['@id' => $seoCanonical . '#website'],
+            'dateModified' => $seoDateIso,
+            'primaryImageOfPage' => $seoImage,
+        ],
+    ],
+];
+
+$seoListItems = [];
+foreach ($promoData as $seoIndex => $seoPromo) {
+    if (!is_array($seoPromo)) {
+        continue;
+    }
+
+    $seoNet = (string) ($seoPromo['net'] ?? '');
+    $seoGr = (int) ($seoPromo['fuels']['benzyna']['g'] ?? 0);
+    $seoUpto = !empty($seoPromo['fuels']['benzyna']['upto']);
+    $seoMax = (int) ($seoPromo['fuels']['benzyna']['v'] ?? $seoGr);
+
+    $seoOfferName = 'Rabat na paliwo ' . $seoNet . ' − ' . $seoGr . ' gr/l'
+        . ($seoUpto && $seoMax > $seoGr ? ' (do ' . $seoMax . ' gr/l)' : '');
+
+    $seoOffer = [
+        '@type' => 'Offer',
+        'name' => $seoOfferName,
+        'description' => (string) ($seoPromo['desc'] ?? ''),
+        'category' => 'Paliwo',
+        'url' => (string) ($seoPromo['url'] ?? $seoCanonical),
+        'availability' => 'https://schema.org/InStock',
+        'seller' => ['@type' => 'Organization', 'name' => $seoNet],
+    ];
+
+    if (!empty($seoPromo['fromIso'])) {
+        $seoOffer['validFrom'] = (string) $seoPromo['fromIso'];
+    }
+    if (!empty($seoPromo['toIso'])) {
+        $seoOffer['validThrough'] = (string) $seoPromo['toIso'];
+    }
+
+    $seoListItems[] = [
+        '@type' => 'ListItem',
+        'position' => $seoIndex + 1,
+        'item' => $seoOffer,
+    ];
+}
+
+if ($seoListItems !== []) {
+    $seoLd['@graph'][] = [
+        '@type' => 'ItemList',
+        'name' => 'Aktualne promocje paliwowe na stacjach',
+        'itemListElement' => $seoListItems,
+    ];
+}
+
+$seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <!doctype html>
 <html lang="pl">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Monitor promocji paliwowych</title>
+    <title><?= e($seoTitle) ?></title>
+    <meta name="description" content="<?= e($seoDescription) ?>">
+    <meta name="keywords" content="<?= e($seoKeywords) ?>">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="author" content="Monitor promocji paliwowych">
+    <meta name="theme-color" content="#1f8a70">
+    <link rel="canonical" href="<?= e($seoCanonical) ?>">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Monitor promocji paliwowych">
+    <meta property="og:locale" content="pl_PL">
+    <meta property="og:title" content="<?= e($seoTitle) ?>">
+    <meta property="og:description" content="<?= e($seoDescription) ?>">
+    <meta property="og:url" content="<?= e($seoCanonical) ?>">
+    <meta property="og:image" content="<?= e($seoImage) ?>">
+    <meta property="og:image:type" content="image/svg+xml">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="<?= e($seoTitle) ?>">
+    <meta name="twitter:description" content="<?= e($seoDescription) ?>">
+    <meta name="twitter:image" content="<?= e($seoImage) ?>">
+    <script type="application/ld+json"><?= $seoLdJson ?></script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Cdefs%3E%3CradialGradient%20id='sphere'%20cx='34%25'%20cy='24%25'%20r='72%25'%3E%3Cstop%20offset='0'%20stop-color='%23dffaf2'/%3E%3Cstop%20offset='0.28'%20stop-color='%236bd6bc'/%3E%3Cstop%20offset='0.6'%20stop-color='%231f8a70'/%3E%3Cstop%20offset='1'%20stop-color='%2312343b'/%3E%3C/radialGradient%3E%3ClinearGradient%20id='gloss'%20x1='18'%20y1='10'%20x2='42'%20y2='42'%20gradientUnits='userSpaceOnUse'%3E%3Cstop%20offset='0'%20stop-color='%23ffffff'%20stop-opacity='0.82'/%3E%3Cstop%20offset='1'%20stop-color='%23ffffff'%20stop-opacity='0'/%3E%3C/linearGradient%3E%3Cfilter%20id='shadow'%20x='-20%25'%20y='-20%25'%20width='140%25'%20height='140%25'%3E%3CfeDropShadow%20dx='0'%20dy='4'%20stdDeviation='4'%20flood-color='%23061316'%20flood-opacity='0.35'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle%20cx='32'%20cy='32'%20r='27'%20fill='url(%23sphere)'%20filter='url(%23shadow)'/%3E%3Cpath%20d='M16%2035C21%2040%2031%2043%2042%2040C48%2038%2052%2034%2054%2030C53%2044%2043%2057%2030%2058C20%2058%2011%2052%208%2043C10%2040%2013%2037%2016%2035Z'%20fill='%230b1f23'%20opacity='0.22'/%3E%3Cellipse%20cx='24'%20cy='20'%20rx='10'%20ry='7'%20fill='url(%23gloss)'%20transform='rotate(-24%2024%2020)'/%3E%3Cpath%20d='M45%2012C51%2018%2055%2025%2055%2033'%20fill='none'%20stroke='%236bd6bc'%20stroke-width='3'%20stroke-linecap='round'%20opacity='0.7'/%3E%3C/svg%3E">
 
     <script>
@@ -3848,9 +3996,10 @@ if ($isCronRefresh) {
                 <div class="col-lg-8">
                     <h1 class="hero-title font-display fw-bold display-5 mb-3">Monitor promocji paliwowych</h1>
                     <p class="hero-copy mb-0">
-                        Zestawienie <strong>aktualnych promocji paliwowych</strong> ze stacji
-                        (BP, Circle K, Shell, ORLEN, MOYA) z automatycznym wykrywaniem najlepszej okazji
-                        na benzynę i olej napędowy.
+                        Codziennie aktualizowane <strong>promocje paliwowe i rabaty na paliwo</strong>
+                        ze stacji <strong>BP, Circle K, Shell, ORLEN, MOYA i MOL</strong> —
+                        z automatycznym wykrywaniem najlepszej okazji na tańsze tankowanie
+                        benzyny, oleju napędowego i LPG.
                     </p>
                 </div>
                 <div class="col-lg-4">
@@ -3909,7 +4058,31 @@ if ($isCronRefresh) {
 
             <h2 class="section-title h1 mb-3">Aktualne promocje paliwowe</h2>
             <div id="cmpBody" class="promo-list">
-                <div class="promo-empty">Brak zapisanych promocji do pokazania. Kliknij „Odśwież dane”, żeby pobrać najnowszy snapshot.</div>
+                <?php if ($promoData !== []): ?>
+                    <?php foreach ($promoData as $seoCard):
+                        $cardNet = (string) ($seoCard['net'] ?? '');
+                        $cardGr = (int) ($seoCard['fuels']['benzyna']['g'] ?? 0);
+                        $cardUpto = !empty($seoCard['fuels']['benzyna']['upto']);
+                        $cardMax = (int) ($seoCard['fuels']['benzyna']['v'] ?? $cardGr);
+                        $cardLpg = isset($seoCard['fuels']['lpg']['v']) ? (int) $seoCard['fuels']['lpg']['v'] : null;
+                        $cardBase = (string) ($seoCard['disc']['baseCond'] ?? '');
+                        $cardMaxCond = $seoCard['disc']['maxCond'] ?? null;
+                        $cardWhen = $seoCard['disc']['when'] ?? null;
+                    ?>
+                        <article class="promo-item<?= !empty($seoCard['top']) ? ' top' : '' ?>">
+                            <?php if (!empty($seoCard['top'])): ?><div class="pi-ribbon pi-ribbon-top">★ TOP okazja</div><?php endif; ?>
+                            <?php if ($cardWhen): ?><div class="pi-ribbon">⏱ <?= e((string) $cardWhen) ?></div><?php endif; ?>
+                            <div class="pi-meta">
+                                <h3 class="pi-name"><?= e($cardNet) ?> — rabat na paliwo −<?= e((string) $cardGr) ?> gr/l<?= $cardUpto && $cardMax > $cardGr ? ' (do −' . e((string) $cardMax) . ' gr/l)' : '' ?></h3>
+                                <p class="val">Benzyna i olej napędowy: <strong>−<?= e((string) $cardGr) ?> gr/l</strong> <?= e($cardBase) ?><?php if ($cardUpto && $cardMax > $cardGr && $cardMaxCond): ?>, do <strong>−<?= e((string) $cardMax) ?> gr/l</strong> <?= e((string) $cardMaxCond) ?><?php endif; ?><?php if ($cardLpg !== null): ?>. LPG: −<?= e((string) $cardLpg) ?> gr/l<?php endif; ?>.<?php if ($cardWhen): ?> Rabat <?= e((string) $cardWhen) ?>.<?php endif; ?></p>
+                                <?php if (!empty($seoCard['toIso'])): ?><p class="days">Ważne do <time datetime="<?= e((string) $seoCard['toIso']) ?>"><?= e(date('d.m.Y', strtotime((string) $seoCard['toIso']))) ?></time>.</p><?php endif; ?>
+                                <?php if (!empty($seoCard['desc'])): ?><p class="pi-desc-text"><?= e((string) $seoCard['desc']) ?></p><?php endif; ?>
+                            </div>
+                        </article>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="promo-empty">Brak zapisanych promocji do pokazania. Kliknij „Odśwież dane”, żeby pobrać najnowszy snapshot.</div>
+                <?php endif; ?>
             </div>
 
             <h2 class="section-title h3 mt-5 mb-3">Oś ważności</h2>

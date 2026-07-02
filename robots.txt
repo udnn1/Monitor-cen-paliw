@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://paliwo.pomo.st/sitemap.xml

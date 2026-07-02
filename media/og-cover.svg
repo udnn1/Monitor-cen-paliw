@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Monitor promocji paliwowych">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c5b38"/>
+      <stop offset="0.55" stop-color="#1f8a70"/>
+      <stop offset="1" stop-color="#35b592"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4b942"/>
+      <stop offset="1" stop-color="#e69a1a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1010" cy="140" r="230" fill="#ffffff" opacity="0.06"/>
+  <circle cx="180" cy="560" r="180" fill="#ffffff" opacity="0.05"/>
+  <text x="80" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="4" fill="#bff0dd">PALIWO.POMO.ST</text>
+  <text x="80" y="270" font-family="Segoe UI, Arial, sans-serif" font-size="82" font-weight="900" fill="#ffffff">Promocje paliwowe</text>
+  <text x="80" y="360" font-family="Segoe UI, Arial, sans-serif" font-size="82" font-weight="900" fill="url(#gold)">i rabaty na paliwo</text>
+  <text x="80" y="440" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="600" fill="#e9fff7">Aktualne rabaty na benzynę, diesel i LPG — codziennie</text>
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="800" fill="#0c3b28">
+    <rect x="80" y="500" width="150" height="60" rx="30" fill="#ffffff"/><text x="100" y="539">BP</text>
+    <rect x="248" y="500" width="200" height="60" rx="30" fill="#ffffff"/><text x="268" y="539">Circle K</text>
+    <rect x="466" y="500" width="160" height="60" rx="30" fill="#ffffff"/><text x="486" y="539">Shell</text>
+    <rect x="644" y="500" width="170" height="60" rx="30" fill="#ffffff"/><text x="664" y="539">ORLEN</text>
+    <rect x="832" y="500" width="160" height="60" rx="30" fill="#ffffff"/><text x="852" y="539">MOYA</text>
+    <rect x="1010" y="500" width="130" height="60" rx="30" fill="#ffffff"/><text x="1030" y="539">MOL</text>
+  </g>
+</svg>
