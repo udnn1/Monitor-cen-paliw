@@ -3590,24 +3590,13 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .card-surface, .hero, .hero-panel, .panel, .mini, .hero-meta-card, .promo-item { background-clip: padding-box; }
 
         .hero-panel {
-            overflow: hidden;
             position: relative;
             background:
+                radial-gradient(200px 200px at 100% 0, rgba(255, 255, 255, 0.16), transparent 70%),
                 linear-gradient(135deg, rgba(18, 52, 59, 0.97), rgba(31, 138, 112, 0.93)),
                 linear-gradient(160deg, rgba(244, 185, 66, 0.12), transparent 42%);
             color: #fff;
             border-color: rgba(255, 255, 255, 0.14);
-            transform: translateZ(0);
-        }
-
-        .hero-panel::after {
-            content: "";
-            position: absolute;
-            right: -40px;
-            top: -40px;
-            width: 180px;
-            height: 180px;
-            background: radial-gradient(circle, rgba(255, 255, 255, 0.14), transparent 70%);
         }
 
         .hero-kicker { letter-spacing: 0.3em; color: rgba(255, 255, 255, 0.72); }
