@@ -3759,7 +3759,6 @@ if ($isCronRefresh) {
         .pi-name { font-weight:850; font-size:1.15rem; letter-spacing:-.01em; line-height:1.1; }
         .pi-sub { display:flex; align-items:center; gap:.4rem; margin-top:.25rem; font-size:.82rem; color:var(--muted); font-weight:600; }
         .pi-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(31,138,112,.18); }
-        .pi-badge { display:inline-flex; align-items:center; gap:.25rem; background:linear-gradient(135deg, rgba(244,185,66,.9), rgba(230,154,26,.9)); color:#3a2600; font-weight:900; font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; padding:.28rem .55rem; border-radius:999px; box-shadow:0 4px 12px rgba(244,185,66,.35); margin-left:.5rem; }
         .pi-disc { width:100%; box-sizing:border-box; text-align:center; padding:.45rem .7rem; border-radius:12px; background:linear-gradient(160deg, rgba(31,138,112,.12), rgba(31,138,112,.04)); border:1px solid rgba(31,138,112,.20); }
         .promo-item.top .pi-disc { background:linear-gradient(160deg, rgba(244,185,66,.22), rgba(244,185,66,.06)); border-color:rgba(244,185,66,.35); }
         .pi-disc .num { font-size:1.6rem; font-weight:900; letter-spacing:-.04em; line-height:1; color:var(--green-deep); }
@@ -3782,6 +3781,7 @@ if ($isCronRefresh) {
         .val-tiers .tline { font-size:.82rem; font-weight:700; color:var(--muted); line-height:1.4; }
         .val-tiers .tline b { color:var(--ink); font-weight:900; margin-right:.15rem; }
         .pi-ribbon { display:flex; align-items:center; justify-content:center; gap:.4rem; background:linear-gradient(135deg,#e3131b,#b00d14); color:#fff; font-weight:900; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; padding:.42rem .8rem; text-align:center; }
+        .pi-ribbon-top { background:linear-gradient(135deg,#f4b942,#e69a1a); color:#3a2600; }
         .prog { position:relative; height:6px; margin-top:.45rem; background:rgba(120,130,140,.16); border-radius:999px; overflow:hidden; }
         .prog > div { position:absolute; inset:0 auto 0 0; border-radius:999px; background:linear-gradient(90deg,var(--green),#35b592); }
         .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
@@ -4064,12 +4064,13 @@ if ($isCronRefresh) {
             if(dl!==null){ const horizon=90; elapsed=Math.max(4,Math.min(100,(horizon-dl)/horizon*100)); }
             return `
             <article class="promo-item ${it.top?'top':''}">
+              ${it.top?`<div class="pi-ribbon pi-ribbon-top">★ TOP okazja</div>`:''}
               ${it.disc.when?`<div class="pi-ribbon">⏱ ${it.disc.when}</div>`:''}
               <div class="pi-head">
                 <div class="pi-id">
                   ${it.logo?`<span class="pi-logo"><img src="${it.logo}" alt=""></span>`:''}
                   <div>
-                    <div class="pi-name">${it.net}${it.top?'<span class="pi-badge">★ TOP okazja</span>':''}</div>
+                    <div class="pi-name">${it.net}</div>
                     <div class="pi-sub"><span class="pi-dot"></span>Aktywna promocja</div>
                   </div>
                 </div>
