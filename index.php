@@ -3765,7 +3765,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             --surface: rgba(255, 255, 255, 0.96);
             --surface-soft: rgba(255, 255, 255, 0.94);
             --line: rgba(18, 52, 59, 0.12);
-            --shadow: rgba(18, 52, 59, 0.06);
+            --shadow: rgba(18, 52, 59, 0.11);
             --amber: #f4b942;
             --red: #c62828;
             --green: #198754;
