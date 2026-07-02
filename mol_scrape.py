@@ -23,7 +23,7 @@ def clean(text):
 def fetch_detail(page, url, title):
     try:
         page.goto(url, wait_until="networkidle", timeout=40000)
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(800)
         txt = page.evaluate(
             "() => { const sels = ['main', 'article', '.content-container', '.article-content'];"
             " for (const s of sels) { const el = document.querySelector(s);"
@@ -71,7 +71,11 @@ def main():
             )
             page = browser.new_page()
             page.goto(URL, wait_until="networkidle", timeout=40000)
-            page.wait_for_timeout(2500)
+            try:
+                page.wait_for_selector(".promotions-container .row > *", timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(600)
             tiles = page.evaluate(
                 "() => { const c = document.querySelector('.promotions-container .row');"
                 " if (!c) return [];"
@@ -111,7 +115,9 @@ def main():
                 parsed.append({"title": title, "text": full, "url": url, "fromIso": from_iso, "toIso": to_iso_value})
 
             for entry in parsed:
-                if entry["url"] and re.search(r"\d{1,3}\s*gr\s*/\s*l", entry["text"], re.I):
+                is_fuel = re.search(r"\d{1,3}\s*gr\s*/\s*l", entry["text"], re.I) is not None
+                is_niche = re.search(r"magenta|wybranych\s+stacj", entry["text"], re.I) is not None
+                if entry["url"] and is_fuel and not is_niche:
                     detail = fetch_detail(page, entry["url"], entry["title"])
                     if detail:
                         entry["text"] = detail
