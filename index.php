@@ -3597,6 +3597,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 linear-gradient(160deg, rgba(244, 185, 66, 0.12), transparent 42%);
             color: #fff;
             border-color: rgba(255, 255, 255, 0.14);
+            transform: translateZ(0);
         }
 
         .hero-panel::after {
@@ -3874,7 +3875,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .empty { color:var(--muted); padding:1rem; }
 
         .spot { display:grid; grid-template-columns:1.3fr 1fr; gap:1.1rem; margin-bottom:2rem; }
-        .hero { position:relative; border-radius:22px; padding:1.5rem 2rem; color:#fff; overflow:hidden; background:linear-gradient(120deg,#0c5b38,#1f8a70 52%,#35b592); box-shadow:0 22px 50px rgba(12,91,56,.4); display:flex; align-items:center; justify-content:space-between; gap:1.5rem 2.5rem; flex-wrap:wrap; border:1px solid transparent; transition:background .25s ease, box-shadow .25s ease, border-color .25s ease; }
+        .hero { position:relative; border-radius:22px; padding:1.5rem 2rem; color:#fff; overflow:hidden; transform:translateZ(0); background:linear-gradient(120deg,#0c5b38,#1f8a70 52%,#35b592); box-shadow:0 22px 50px rgba(12,91,56,.4); display:flex; align-items:center; justify-content:space-between; gap:1.5rem 2.5rem; flex-wrap:wrap; border:1px solid transparent; transition:background .25s ease, box-shadow .25s ease, border-color .25s ease; }
         :root[data-theme="dark"] .hero { background:linear-gradient(120deg,#06281a,#0c5b38 55%,#177a5f); box-shadow:0 22px 50px rgba(0,0,0,.5); border-color:rgba(53,181,146,.28); }
         .hero::after { content:"★"; position:absolute; right:2%; top:50%; transform:translateY(-50%); font-size:12rem; opacity:.1; line-height:0; }
         .hero-id { display:flex; align-items:center; gap:1.1rem; position:relative; z-index:1; }
