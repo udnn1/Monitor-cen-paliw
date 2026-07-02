@@ -2661,7 +2661,7 @@ function mol_essence_description(string $text): string
             continue;
         }
 
-        if (preg_match('/^(wakacje zacznij|do zobaczenia|zyskaj dostęp|pobierz |dołącz |nie pozwól|sprawdź szczegóły|odblokuj ofert)/iu', $sentence) === 1) {
+        if (preg_match('/^(wakacje zacznij|do zobaczenia|zyskaj dostęp|pobierz |dołącz |nie pozwól|sprawdź szczegóły|odblokuj ofert|promocja (trwa|obowiązuje)|promocja jest ważna)/iu', $sentence) === 1) {
             continue;
         }
 
@@ -2742,6 +2742,8 @@ function fetch_mol_fuel_promotions(): array
     $description = preg_replace('/\s*(Okres obowiązywania promocji|Data rozpocz\w+ promocji).*$/iu', '', $rawText) ?? $rawText;
     $description = trim(preg_replace('/^' . preg_quote($title, '/') . '\s*/u', '', $description) ?? $description);
     $description = mol_essence_description($description);
+    $description = preg_replace('/\s+(?=[−–—-]?\s*\d{1,3}\s*gr\s*\/\s*l\s*[–—-]\s*LPG)/iu', '. ', $description) ?? $description;
+    $description = preg_replace('/([–—-]\s*LPG)\s+(?=\p{Lu})/u', '$1. ', $description) ?? $description;
 
     if ($description !== '' && function_exists('mb_substr') && mb_strlen($description, 'UTF-8') > 500) {
         $description = rtrim(mb_substr($description, 0, 497, 'UTF-8')) . '...';
