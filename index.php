@@ -902,6 +902,17 @@ function station_promotion_discount_condition_penalty(array $item): int
     );
 }
 
+function promo_condition_is_unconditional(string $cond): bool
+{
+    $cond = strtolower(trim($cond));
+
+    if ($cond === '') {
+        return false;
+    }
+
+    return preg_match('/min\.|min\s+\d|zakup|weekend|sobot|niedziel|produkt|paragon|kwot/u', $cond) !== 1;
+}
+
 function station_promotion_rank_metrics(array $item): array
 {
     if (isset($item['display']['fuels']['benzyna']['g']) && is_numeric($item['display']['fuels']['benzyna']['g'])) {
@@ -3364,15 +3375,6 @@ function refresh_dashboard_snapshot_for_target(?DateTimeImmutable $refreshTarget
 
 
 
-if (PHP_SAPI !== 'cli' && isset($_GET['refresh_status']) && $_GET['refresh_status'] === '1') {
-    header('Content-Type: application/json; charset=utf-8');
-    $statusSnapshot = load_dashboard_snapshot();
-    echo json_encode([
-        'generatedAtIso' => is_array($statusSnapshot) ? ($statusSnapshot['generatedAtIso'] ?? null) : null,
-    ], JSON_UNESCAPED_SLASHES);
-    exit;
-}
-
 $isCronRefresh = cli_has_flag('--refresh-cache');
 $isUrlRefresh = PHP_SAPI !== 'cli' && isset($_GET['refresh']) && $_GET['refresh'] === '1';
 $isRefresh = $isCronRefresh || $isUrlRefresh;
@@ -3383,34 +3385,25 @@ if ($isUrlRefresh) {
     if (!empty($manualRefreshCooldown['active'])) {
         redirect_after_manual_refresh('refresh_cooldown');
     }
-
-    $manualRefreshCooldown = manual_refresh_cooldown_claim();
-
-    if (empty($manualRefreshCooldown['allowed'])) {
-        redirect_after_manual_refresh('refresh_cooldown');
-    }
-
-    $preRefreshSnapshot = load_dashboard_snapshot();
-    $preRefreshBase = is_array($preRefreshSnapshot) ? (string) ($preRefreshSnapshot['generatedAtIso'] ?? '') : '';
-
-    if (function_exists('shell_exec')) {
-        $phpBinary = is_file('/usr/bin/php') ? '/usr/bin/php' : 'php';
-        $backgroundCmd = 'setsid ' . escapeshellarg($phpBinary) . ' ' . escapeshellarg(__FILE__)
-            . ' --refresh-cache >/dev/null 2>&1 &';
-        @shell_exec($backgroundCmd);
-    }
-
-    redirect_after_manual_refresh('refresh_started', $preRefreshBase);
 }
 
-if ($isCronRefresh) {
-    $refreshLock = acquire_dashboard_refresh_lock(true);
+if ($isRefresh) {
+    $refreshLock = acquire_dashboard_refresh_lock($isCronRefresh);
 
     if (!is_resource($refreshLock)) {
         $existingSnapshot = load_dashboard_snapshot();
         $snapshot = is_array($existingSnapshot) ? $existingSnapshot : empty_dashboard_snapshot();
         $refreshStatus = 'refresh_busy_existing_kept';
     } else {
+        if ($isUrlRefresh) {
+            $manualRefreshCooldown = manual_refresh_cooldown_claim();
+
+            if (empty($manualRefreshCooldown['allowed'])) {
+                release_dashboard_refresh_lock($refreshLock);
+                redirect_after_manual_refresh('refresh_cooldown');
+            }
+        }
+
         try {
             $refreshResult = refresh_dashboard_snapshot_for_target(null);
             $snapshot = is_array($refreshResult['snapshot'] ?? null)
@@ -3420,6 +3413,10 @@ if ($isCronRefresh) {
         } finally {
             release_dashboard_refresh_lock($refreshLock);
         }
+    }
+
+    if ($isUrlRefresh) {
+        redirect_after_manual_refresh((string) ($refreshStatus ?? 'unknown'));
     }
 } else {
     $snapshot = load_dashboard_snapshot();
@@ -3506,6 +3503,7 @@ foreach (($stationPromotions['items'] ?? []) as $promoItem) {
         'net' => $promoNet,
         'logo' => station_logo_url($promoNet) ?? '',
         'cond' => $promoConditions[$promoNet] ?? '',
+        'uncond' => promo_condition_is_unconditional($promoConditions[$promoNet] ?? ''),
         'disc' => [
             'baseCond' => (string) ($promoTier['baseCond'] ?? ''),
             'maxCond' => $promoTier['maxCond'] ?? null,
@@ -3544,11 +3542,8 @@ $manualRefreshClass = 'alert-info';
 if (isset($_GET['refreshed']) && $_GET['refreshed'] === '1') {
     $status = isset($_GET['status']) ? (string) $_GET['status'] : '';
 
-    if ($status === 'refresh_started') {
-        $manualRefreshMessage = 'Odświeżanie uruchomione w tle — pobieram wszystkie promocje i średnie ceny. Strona odświeży się automatycznie po zakończeniu aktualizacji (zwykle ok. 40 s).';
-        $manualRefreshClass = 'alert-info';
-    } elseif ($status === 'fresh_saved') {
-        $manualRefreshMessage = 'Promocje zostały ręcznie odświeżone. Aktualny czas zapisu: ' . $lastDataUpdateLabel . '.';
+    if ($status === 'fresh_saved') {
+        $manualRefreshMessage = 'Odświeżono na bieżąco — pobrano aktualne promocje i średnie ceny. Czas zapisu: ' . $lastDataUpdateLabel . '.';
         $manualRefreshClass = 'alert-success';
     } elseif ($status === 'refresh_cooldown') {
         $cooldownStatus = manual_refresh_cooldown_status();
@@ -3859,7 +3854,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .alert-info { background: rgba(79, 134, 247, 0.12); color: var(--ink); }
 
         .shell { position: relative; min-height: 100vh; }
-        .card-surface { background: var(--surface); border: 1px solid var(--line); box-shadow: 0 10px 28px var(--shadow); border-radius: 24px; }
+        .card-surface { background: var(--surface); border: 0; box-shadow: 0 10px 28px var(--shadow); border-radius: 24px; }
 
         .hero-panel {
             position: relative;
@@ -3868,8 +3863,8 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
                 linear-gradient(135deg, rgba(18, 52, 59, 0.97), rgba(31, 138, 112, 0.93)),
                 linear-gradient(160deg, rgba(244, 185, 66, 0.12), transparent 42%);
             color: #fff;
-            border-color: rgba(255, 255, 255, 0.14);
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 10px 28px var(--shadow);
+            border: 0;
+            box-shadow: 0 10px 28px var(--shadow);
         }
 
         .hero-kicker { letter-spacing: 0.3em; color: rgba(255, 255, 255, 0.72); }
@@ -4133,15 +4128,15 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             .dashboard-theme-toggle .theme-switch { width: 100%; min-width: 0; justify-content: center; }
         }
 
-        .panel { background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:1.4rem 1.5rem; box-shadow:0 12px 30px var(--shadow); }
+        .panel { background:var(--surface); border:0; border-radius:20px; padding:1.4rem 1.5rem; box-shadow:0 12px 30px var(--shadow); }
         .chart-wrap { position:relative; height:320px; }
         @media (max-width:640px){ .chart-wrap { height:260px; } }
         .chart-note { margin:.7rem 0 0; font-size:.78rem; color:var(--muted); }
         .empty { color:var(--muted); padding:1rem; }
 
         .spot { display:grid; grid-template-columns:1.3fr 1fr; gap:1.1rem; margin-bottom:2rem; }
-        .hero { position:relative; border-radius:22px; padding:1.5rem 2rem; color:#fff; overflow:hidden; background:linear-gradient(120deg,#0c5b38,#1f8a70 52%,#35b592); box-shadow:inset 0 0 0 1px rgba(53,181,146,.55), 0 22px 50px rgba(12,91,56,.4); display:flex; align-items:center; justify-content:space-between; gap:1.5rem 2.5rem; flex-wrap:wrap; border:1px solid transparent; transition:background .25s ease, box-shadow .25s ease, border-color .25s ease; }
-        :root[data-theme="dark"] .hero { background:linear-gradient(120deg,#06281a,#0c5b38 55%,#177a5f); box-shadow:0 22px 50px rgba(0,0,0,.5); border-color:rgba(53,181,146,.28); }
+        .hero { position:relative; border-radius:22px; padding:1.5rem 2rem; color:#fff; overflow:hidden; background:linear-gradient(120deg,#0c5b38,#1f8a70 52%,#35b592); box-shadow:0 22px 50px rgba(12,91,56,.4); display:flex; align-items:center; justify-content:space-between; gap:1.5rem 2.5rem; flex-wrap:wrap; border:0; transition:background .25s ease, box-shadow .25s ease; }
+        :root[data-theme="dark"] .hero { background:linear-gradient(120deg,#06281a,#0c5b38 55%,#177a5f); box-shadow:0 22px 50px rgba(0,0,0,.5); }
         .hero::after { content:"★"; position:absolute; right:2%; top:50%; transform:translateY(-50%); font-size:12rem; opacity:.1; line-height:0; }
         .hero-id { display:flex; align-items:center; gap:1.1rem; position:relative; z-index:1; }
         .hero-logo { width:64px; height:64px; flex:0 0 auto; border-radius:15px; background:rgba(255,255,255,.94); display:grid; place-items:center; }
@@ -4156,17 +4151,17 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .hero-foot { display:flex; flex-direction:row; flex-wrap:wrap; align-items:flex-start; gap:.5rem; position:relative; z-index:1; }
         .hero-chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:.4rem .85rem; font-size:.84rem; font-weight:700; white-space:normal; max-width:15rem; line-height:1.3; }
         .spot-side { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; align-content:start; }
-        .mini { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; box-shadow:0 8px 20px var(--shadow); display:flex; flex-direction:column; gap:.2rem; }
+        .mini { background:var(--surface); border:0; border-radius:14px; padding:.85rem 1rem; box-shadow:0 8px 20px var(--shadow); display:flex; flex-direction:column; gap:.2rem; }
         .mini-label { font-size:.72rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
         .mini-value { font-size:1.4rem; font-weight:900; letter-spacing:-.02em; }
         .mini-sub { font-size:.78rem; color:var(--muted); font-weight:700; }
 
         .promo-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 350px), 1fr)); gap:1.25rem; align-items:start; }
-        .promo-item { position:relative; border-radius:20px; overflow:hidden; background:var(--surface); border:1px solid var(--line); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(18,52,59,.06), 0 18px 40px -18px var(--shadow); transition:transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s, border-color .2s; }
+        .promo-item { position:relative; border-radius:20px; overflow:hidden; background:var(--surface); border:0; box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(18,52,59,.06), 0 18px 40px -18px var(--shadow); transition:transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s; }
         :root[data-theme="dark"] .promo-item { box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 20px 44px -20px rgba(0,0,0,.6); }
-        .promo-item:hover { transform:translateY(-3px); border-color:rgba(31,138,112,.3); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 26px 50px -20px var(--shadow); }
-        .promo-item.top { border-color:rgba(53,181,146,.55); }
-        .promo-item.top::after { content:""; position:absolute; inset:0; border-radius:20px; pointer-events:none; box-shadow:0 0 0 1px rgba(53,181,146,.4) inset; }
+        .promo-item:hover { transform:translateY(-3px); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 26px 50px -20px var(--shadow); }
+        .promo-item.top { box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(18,52,59,.06), 0 20px 46px -18px rgba(31,138,112,.5); }
+        :root[data-theme="dark"] .promo-item.top { box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 20px 46px -18px rgba(31,138,112,.45); }
         .pi-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; padding:1rem 1.1rem .85rem; }
         .pi-id { display:flex; align-items:center; gap:.85rem; }
         .pi-logo { width:52px; height:52px; flex:0 0 auto; display:grid; place-items:center; border-radius:13px; background:#fff; border:1px solid var(--line); box-shadow:0 4px 10px rgba(18,52,59,.08); }
@@ -4497,36 +4492,12 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
     }
 
     const manualRefreshAlert = document.getElementById('manualRefreshAlert');
-    const REFRESH_STARTED = <?= (isset($_GET['refreshed'], $_GET['status']) && $_GET['status'] === 'refresh_started') ? 'true' : 'false' ?>;
-    const REFRESH_BASELINE = <?= json_encode(isset($_GET['base']) && is_string($_GET['base']) && $_GET['base'] !== '' ? $_GET['base'] : ($snapshot['generatedAtIso'] ?? null), JSON_UNESCAPED_SLASHES) ?>;
 
-    if (manualRefreshAlert && !REFRESH_STARTED) {
+    if (manualRefreshAlert) {
         window.setTimeout(() => {
             manualRefreshAlert.classList.add('is-hiding');
             window.setTimeout(() => manualRefreshAlert.remove(), 350);
         }, 6500);
-    }
-
-    if (REFRESH_STARTED) {
-        let refreshTries = 0;
-        let refreshPoll = null;
-        const checkRefresh = () => {
-            refreshTries++;
-            fetch('?refresh_status=1', { cache: 'no-store' })
-                .then(r => r.json())
-                .then(j => {
-                    if (j && j.generatedAtIso && j.generatedAtIso !== REFRESH_BASELINE) {
-                        if (refreshPoll) window.clearInterval(refreshPoll);
-                        window.location = window.location.pathname;
-                    }
-                })
-                .catch(() => {});
-            if (refreshTries > 90 && refreshPoll) {
-                window.clearInterval(refreshPoll);
-            }
-        };
-        checkRefresh();
-        refreshPoll = window.setInterval(checkRefresh, 3000);
     }
 
     (() => {
@@ -4581,7 +4552,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         const maxNet = maxRow ? maxRow.it.net : '';
         let nearest = null, nearestNet = '';
         rows.forEach(r=>{ const d=pDays(r.it.toIso); if(d!==null&&d>=0&&(nearest===null||d<nearest)){ nearest=d; nearestNet=r.it.net; } });
-        const uncond = rows.filter(r=>!r.off.upto && r.it.cond.startsWith('bezwarunkowo')).sort((a,b)=>b.off.g-a.off.g)[0];
+        const uncond = rows.filter(r=>!r.off.upto && r.it.uncond).sort((a,b)=>b.off.g-a.off.g)[0];
         spot.innerHTML = `
           <div class="hero">
             <div class="hero-id">
