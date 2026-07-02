@@ -3930,6 +3930,8 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
         .val-tiers .tline b { color:var(--ink); font-weight:900; margin-right:.15rem; }
         .pi-ribbon { display:flex; align-items:center; justify-content:center; gap:.4rem; background:linear-gradient(135deg,#e3131b,#b00d14); color:#fff; font-weight:900; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; padding:.42rem .8rem; text-align:center; }
         .pi-ribbon-top { background:linear-gradient(120deg,#0c5b38,#1f8a70 52%,#35b592); color:#fff; }
+        :root[data-theme="dark"] .pi-ribbon { background:linear-gradient(135deg,#b3121a,#7d0a10); color:#ffe3e3; }
+        :root[data-theme="dark"] .pi-ribbon-top { background:linear-gradient(120deg,#06281a,#0c5b38 55%,#177a5f); color:#e9fff7; }
         .prog { position:relative; height:6px; margin-top:.45rem; background:rgba(120,130,140,.16); border-radius:999px; overflow:hidden; }
         .prog > div { position:absolute; inset:0 auto 0 0; border-radius:999px; background:linear-gradient(90deg,var(--green),#35b592); }
         .prog.soon > div { background:linear-gradient(90deg,#e8873a,#e3131b); }
