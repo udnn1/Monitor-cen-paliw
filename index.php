@@ -2592,25 +2592,42 @@ function mol_promotions_source_url(): string
     return 'https://molpolska.pl/pl/kierowcy/aktualne-promocje';
 }
 
+function browser_scrape(): array
+{
+    static $cachedResult = null;
+
+    if ($cachedResult !== null) {
+        return $cachedResult;
+    }
+
+    $cachedResult = ['mol' => [], 'averages' => null];
+    $script = __DIR__ . '/browser_scrape.py';
+
+    if (is_file($script) && function_exists('shell_exec')) {
+        $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
+            . ' timeout 210 xvfb-run -a python3 ' . escapeshellarg($script) . ' 2>/dev/null';
+        $out = shell_exec($cmd);
+
+        if (is_string($out) && trim($out) !== '') {
+            $decoded = json_decode(trim($out), true);
+
+            if (is_array($decoded)) {
+                if (is_array($decoded['mol'] ?? null)) {
+                    $cachedResult['mol'] = $decoded['mol'];
+                }
+                if (is_array($decoded['averages'] ?? null)) {
+                    $cachedResult['averages'] = $decoded['averages'];
+                }
+            }
+        }
+    }
+
+    return $cachedResult;
+}
+
 function mol_scrape_promotions(): array
 {
-    $script = __DIR__ . '/mol_scrape.py';
-
-    if (!is_file($script) || !function_exists('shell_exec')) {
-        return [];
-    }
-
-    $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
-        . ' timeout 90 python3 ' . escapeshellarg($script) . ' 2>/dev/null';
-    $out = shell_exec($cmd);
-
-    if (!is_string($out) || trim($out) === '') {
-        return [];
-    }
-
-    $data = json_decode($out, true);
-
-    return is_array($data) ? $data : [];
+    return browser_scrape()['mol'];
 }
 
 function mol_promo_gr_values(string $text): array
@@ -3074,31 +3091,21 @@ function fetch_fuel_averages(): ?array
     $cached = read_json_array_file($path);
     $now = time();
 
-    $script = __DIR__ . '/paliwomapa_scrape.py';
+    $decoded = browser_scrape()['averages'];
     $fresh = null;
 
-    if (is_file($script) && function_exists('shell_exec')) {
-        $cmd = 'HOME=' . escapeshellarg('/var/lib/paliwo-browser')
-            . ' timeout 175 xvfb-run -a python3 ' . escapeshellarg($script) . ' 2>/dev/null';
-        $out = shell_exec($cmd);
-
-        if (is_string($out) && trim($out) !== '') {
-            $decoded = json_decode(trim($out), true);
-
-            if (is_array($decoded) && isset($decoded['benzyna'], $decoded['diesel'])
-                && is_numeric($decoded['benzyna']) && is_numeric($decoded['diesel'])) {
-                $fresh = [
-                    'benzyna' => (float) $decoded['benzyna'],
-                    'pb98' => isset($decoded['pb98']) && is_numeric($decoded['pb98']) ? (float) $decoded['pb98'] : null,
-                    'diesel' => (float) $decoded['diesel'],
-                    'lpg' => isset($decoded['lpg']) && is_numeric($decoded['lpg']) ? (float) $decoded['lpg'] : null,
-                    'stations' => isset($decoded['stations']) ? (int) $decoded['stations'] : null,
-                    'date' => isset($decoded['date']) && is_string($decoded['date']) ? $decoded['date'] : null,
-                    'fetchedAt' => $now,
-                    'source' => 'paliwomapa.pl',
-                ];
-            }
-        }
+    if (is_array($decoded) && isset($decoded['benzyna'], $decoded['diesel'])
+        && is_numeric($decoded['benzyna']) && is_numeric($decoded['diesel'])) {
+        $fresh = [
+            'benzyna' => (float) $decoded['benzyna'],
+            'pb98' => isset($decoded['pb98']) && is_numeric($decoded['pb98']) ? (float) $decoded['pb98'] : null,
+            'diesel' => (float) $decoded['diesel'],
+            'lpg' => isset($decoded['lpg']) && is_numeric($decoded['lpg']) ? (float) $decoded['lpg'] : null,
+            'stations' => isset($decoded['stations']) ? (int) $decoded['stations'] : null,
+            'date' => isset($decoded['date']) && is_string($decoded['date']) ? $decoded['date'] : null,
+            'fetchedAt' => $now,
+            'source' => 'paliwomapa.pl',
+        ];
     }
 
     if ($fresh !== null) {
@@ -4226,6 +4233,9 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             <br>
             Kod źródłowy projektu:
             <a class="source-link" href="https://github.com/udnn1/monitor-promocji-paliwowych" target="_blank" rel="noreferrer">github.com/udnn1/monitor-promocji-paliwowych</a>.
+            <br>
+            Projekt hostowany na:
+            <a class="source-link" href="https://biedahosting.pl/" target="_blank" rel="noreferrer">biedahosting.pl</a>.
         </footer>
     </main>
 </div>
