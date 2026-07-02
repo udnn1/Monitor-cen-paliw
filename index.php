@@ -326,7 +326,7 @@ function format_cooldown_minutes(int $remainingSeconds): string
     return $minutes . ' minut';
 }
 
-function redirect_after_manual_refresh(string $status): void
+function redirect_after_manual_refresh(string $status, ?string $base = null): void
 {
     $redirectPath = (string) ($_SERVER['SCRIPT_NAME'] ?? '');
 
@@ -342,13 +342,15 @@ function redirect_after_manual_refresh(string $status): void
         }
     }
 
-    header(
-        'Location: ' . $redirectPath
+    $location = $redirectPath
         . '?refreshed=1&status=' . rawurlencode($status)
-        . '&t=' . time(),
-        true,
-        303
-    );
+        . '&t=' . time();
+
+    if ($base !== null && $base !== '') {
+        $location .= '&base=' . rawurlencode($base);
+    }
+
+    header('Location: ' . $location, true, 303);
     exit;
 }
 
@@ -3273,6 +3275,9 @@ if ($isUrlRefresh) {
         redirect_after_manual_refresh('refresh_cooldown');
     }
 
+    $preRefreshSnapshot = load_dashboard_snapshot();
+    $preRefreshBase = is_array($preRefreshSnapshot) ? (string) ($preRefreshSnapshot['generatedAtIso'] ?? '') : '';
+
     if (function_exists('shell_exec')) {
         $phpBinary = is_file('/usr/bin/php') ? '/usr/bin/php' : 'php';
         $backgroundCmd = 'setsid ' . escapeshellarg($phpBinary) . ' ' . escapeshellarg(__FILE__)
@@ -3280,7 +3285,7 @@ if ($isUrlRefresh) {
         @shell_exec($backgroundCmd);
     }
 
-    redirect_after_manual_refresh('refresh_started');
+    redirect_after_manual_refresh('refresh_started', $preRefreshBase);
 }
 
 if ($isCronRefresh) {
@@ -4375,7 +4380,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
 
     const manualRefreshAlert = document.getElementById('manualRefreshAlert');
     const REFRESH_STARTED = <?= (isset($_GET['refreshed'], $_GET['status']) && $_GET['status'] === 'refresh_started') ? 'true' : 'false' ?>;
-    const REFRESH_BASELINE = <?= json_encode($snapshot['generatedAtIso'] ?? null, JSON_UNESCAPED_SLASHES) ?>;
+    const REFRESH_BASELINE = <?= json_encode(isset($_GET['base']) && is_string($_GET['base']) && $_GET['base'] !== '' ? $_GET['base'] : ($snapshot['generatedAtIso'] ?? null), JSON_UNESCAPED_SLASHES) ?>;
 
     if (manualRefreshAlert && !REFRESH_STARTED) {
         window.setTimeout(() => {
@@ -4386,21 +4391,24 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
 
     if (REFRESH_STARTED) {
         let refreshTries = 0;
-        const refreshPoll = window.setInterval(() => {
+        let refreshPoll = null;
+        const checkRefresh = () => {
             refreshTries++;
             fetch('?refresh_status=1', { cache: 'no-store' })
                 .then(r => r.json())
                 .then(j => {
                     if (j && j.generatedAtIso && j.generatedAtIso !== REFRESH_BASELINE) {
-                        window.clearInterval(refreshPoll);
+                        if (refreshPoll) window.clearInterval(refreshPoll);
                         window.location = window.location.pathname;
                     }
                 })
                 .catch(() => {});
-            if (refreshTries > 75) {
+            if (refreshTries > 90 && refreshPoll) {
                 window.clearInterval(refreshPoll);
             }
-        }, 4000);
+        };
+        checkRefresh();
+        refreshPoll = window.setInterval(checkRefresh, 3000);
     }
 
     (() => {
@@ -4410,6 +4418,7 @@ $seoLdJson = json_encode($seoLd, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
             url.searchParams.delete('refreshed');
             url.searchParams.delete('status');
             url.searchParams.delete('t');
+            url.searchParams.delete('base');
 
             const cleanSearch = url.searchParams.toString();
             const cleanUrl = url.pathname + (cleanSearch ? `?${cleanSearch}` : '') + url.hash;
